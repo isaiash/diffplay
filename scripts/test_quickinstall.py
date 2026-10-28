@@ -106,6 +106,12 @@ exit 1
         self.assert_installed(self.invoke())
         self.assertNotIn("VERSION", (self.root / "downloads").read_text())
 
+    def test_source_download_uses_main_branch(self):
+        self.assert_installed(self.invoke())
+        downloads = (self.root / "downloads").read_text().splitlines()
+        self.assertIn("https://codeload.github.com/isaiash/diffplay/tar.gz/refs/heads/main", downloads)
+        self.assertFalse(any("refs/heads/master" in url for url in downloads))
+
     def test_macos_installs_from_pipe_with_existing_dependencies(self):
         self.env.update(TEST_OS="Darwin", TEST_ARCH="arm64")
         self.assert_installed(self.invoke())

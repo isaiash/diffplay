@@ -127,7 +127,7 @@ main() {
     printf 'Installing Diffplay for %s/%s…\n' "$os" "$arch"
     ensure_go
     curl --fail --show-error --silent --location --retry 3 \
-        https://codeload.github.com/isaiash/diffplay/tar.gz/refs/heads/master \
+        https://codeload.github.com/isaiash/diffplay/tar.gz/refs/heads/main \
         -o "$work_dir/source.tar.gz"
     mkdir "$work_dir/source"
     tar -xzf "$work_dir/source.tar.gz" -C "$work_dir/source" --strip-components=1
