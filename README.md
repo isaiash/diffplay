@@ -7,7 +7,7 @@ Watch live file changes in your terminal with a sorted change list and an intera
 ## Install (macOS and Linux)
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/isaiash/diffplay/master/quickinstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/isaiash/diffplay/main/quickinstall.sh | bash
 ```
 
 The installer detects your OS, installs missing dependencies (may require sudo or Homebrew), and downloads a temporary Go toolchain when needed.
