@@ -36,9 +36,9 @@ func TestDiscoverRejectsFalseAndSymlinkMarkers(t *testing.T) {
 	}
 }
 
-func TestDiscoverNestedSortedRoots(t *testing.T) {
+func TestDiscoverImmediateSortedRoots(t *testing.T) {
 	root := repository(t)
-	nested := filepath.Join(root, "a spaced", "nested")
+	nested := filepath.Join(root, "a spaced")
 	if err := os.MkdirAll(nested, 0755); err != nil {
 		t.Fatal(err)
 	}

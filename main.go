@@ -59,7 +59,7 @@ func run(args []string, out io.Writer) error {
 	showVersion := flags.Bool("version", false, "print version and exit")
 	view := flags.String("view", "list", "initial view: graph or list (Tab switches views)")
 	flags.Usage = func() {
-		fmt.Fprintln(out, "Diffplay\n\nUsage: diffplay [options] [directory]\n\nLive repository activity inside your terminal: graph and sorted change tree.\nDefaults to the current directory; Git-ignored paths are excluded; depth <= 5.\nOutside Git, discover repositories within 5 levels and select one or more.\nStartup Git changes are loaded quietly; only subsequent live changes flash.\n\nTab: switch graph/list. List: arrows navigate, right expands, left collapses,\nclick toggles folders, hover selects, wheel scrolls, a/c expands/collapses all.\nGraph: hover diff, drag nodes, wheel/+/- zoom, n/p selects nodes.\nq: quit. Counts start from Git status/diff, then accumulate observed live edits.\n\nOptions:")
+		fmt.Fprintln(out, "Diffplay\n\nUsage: diffplay [options] [directory]\n\nLive repository activity inside your terminal: graph and sorted change tree.\nDefaults to the current directory; Git-ignored paths are excluded; depth <= 5.\nOutside Git, inspect only the selected directory and its immediate children; never recurse.\nHidden and reserved system/dependency children are skipped.\nStartup Git changes are loaded quietly; only subsequent live changes flash.\n\nTab: switch graph/list. List: arrows navigate, right expands, left collapses,\nclick toggles folders, hover selects, wheel scrolls, a/c expands/collapses all.\nGraph: hover diff, drag nodes, wheel/+/- zoom, n/p selects nodes.\nq: quit. Counts start from Git status/diff, then accumulate observed live edits.\n\nOptions:")
 		flags.PrintDefaults()
 	}
 	if err := flags.Parse(args); err != nil {
@@ -100,12 +100,12 @@ func run(args []string, out io.Writer) error {
 	grouped := false
 	_, repoErr := gitrepo.Open(root)
 	if errors.Is(repoErr, gitrepo.ErrNotRepository) {
-		paths, err = gitrepo.Discover(root, 5)
+		paths, err = gitrepo.Discover(root, 1)
 		if err != nil {
 			return fmt.Errorf("repository discovery failed: %w", err)
 		}
 		if len(paths) == 0 {
-			return errors.New("no Git repositories found within 5 directory levels; open the application inside a Git repository")
+			return errors.New("no Git repositories found in the selected directory or its immediate children; open the application inside a Git repository")
 		}
 		if *snapshot {
 			return errors.New("repository selection requires an interactive terminal; run --snapshot inside a Git repository")

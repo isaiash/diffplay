@@ -22,7 +22,7 @@ func TestDiscoverDepthAndSymlinkTraversal(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err = Discover(root, 2)
-	if err != nil || !reflect.DeepEqual(got, []string{nested}) {
+	if err != nil || len(got) != 0 {
 		t.Fatalf("unexpected symlink traversal: %q %v", got, err)
 	}
 }

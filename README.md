@@ -35,6 +35,9 @@ diffplay /path/to/repository    # Watch a specific directory.
 
 Press `Tab` to switch between list and graph; press `q` to quit.
 Git ignore rules are respected. Open a Git repository, or a directory containing repositories to select from.
+Repository discovery inspects only the selected directory and its immediate children; it never recurses into grandchildren.
+Hidden children and reserved system/dependency directories (`Library`, `System`, `Applications`, `Windows`, `node_modules`, `vendor`, `__pycache__`, and `venv`) are skipped, as are inaccessible children.
+An explicitly selected repository remains valid even if its directory is hidden or reserved. Symlink directories and symlink `.git` markers are not followed during discovery; linked Git worktrees are supported.
 
 ## Development
 

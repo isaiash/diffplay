@@ -33,13 +33,13 @@ def main():
         assert result.returncode != 0 and "open the application inside a Git repository" in result.stderr
         print("PASS: a non-Git directory without repositories returns English guidance")
         make_repo(workspace / "alpha", 100)
-        make_repo(workspace / "nested/beta", 10)
+        make_repo(workspace / "beta", 10)
         terminal = Terminal(binary, workspace)
         try:
-            raw, rows = terminal.frame(lambda raw, rows: "SELECT REPOSITORIES" in raw and "alpha" in raw and "nested/beta" in raw)
+            raw, rows = terminal.frame(lambda raw, rows: "SELECT REPOSITORIES" in raw and "alpha" in raw and "beta" in raw)
             assert "2 repositories found" in raw and "hidden-repository" not in raw
             terminal.send(b"\t\x1b[B\t\r")
-            raw, rows = terminal.frame(lambda raw, rows: "CHANGES" in raw and "alpha/" in raw and "nested/beta/" in raw and "+112" in rows[-2])
+            raw, rows = terminal.frame(lambda raw, rows: "CHANGES" in raw and "alpha/" in raw and "beta/" in raw and "+112" in rows[-2])
             assert "✦" not in raw
             assert "hidden.cache" not in raw
             changed_rows = [row for row in rows[2:-2] if "same.txt" in row]
@@ -49,7 +49,7 @@ def main():
             raw, rows = terminal.frame(lambda raw, rows: "✦" in raw and "+113" in rows[-2])
             same_rows = [row for row in rows[2:-2] if "same.txt" in row]
             assert len(same_rows) == 2 and sum("✦" in row for row in same_rows) == 1, same_rows
-            (workspace / "nested/beta/second.txt").write_text("more\n" * 3)
+            (workspace / "beta/second.txt").write_text("more\n" * 3)
             terminal.frame(lambda raw, rows: "second.txt" in raw and "+116" in rows[-2])
             print("PASS: both repositories update independently; only new live events flash")
             terminal.resize(160, 48)
@@ -57,7 +57,7 @@ def main():
             terminal.send(b"\t")
             terminal.frame(lambda raw, rows: "CHANGES" not in raw)
             terminal.send(b"\t")
-            terminal.frame(lambda raw, rows: "CHANGES" in raw and "alpha/" in raw and "nested/beta/" in raw)
+            terminal.frame(lambda raw, rows: "CHANGES" in raw and "alpha/" in raw and "beta/" in raw)
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
             assert terminal.proc.returncode == 0 and termios.tcgetattr(terminal.slave) == terminal.before
@@ -68,7 +68,7 @@ def main():
         try:
             terminal.frame(lambda raw, rows: "SELECT REPOSITORIES" in raw)
             terminal.send(b"\x1b[B\r")
-            raw, rows = terminal.frame(lambda raw, rows: "CHANGES" in raw and "nested/beta/" in raw)
+            raw, rows = terminal.frame(lambda raw, rows: "CHANGES" in raw and "beta/" in raw)
             assert "alpha/" not in raw
             assert "✦" not in raw
             terminal.send(b"q")
