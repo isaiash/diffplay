@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real-PTY checks for nested folder groups and solid shell/core bubbles."""
+"""Real-PTY checks for nested folder groups and dotted body/nucleus cells."""
 import os
 from pathlib import Path
 import re
@@ -8,7 +8,7 @@ import sys
 import tempfile
 import termios
 
-from list_smoke import Terminal
+from list_smoke import BLUE, GRAY, GREEN, RED, Terminal, braille_cells, mode
 
 
 def git(root, *args):
@@ -26,6 +26,10 @@ def main():
             file = root / name
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text("before\n" * count)
+        (root / "A/C/unchanged.go").write_text("quiet context\n" * 10)
+        (root / "A/C/unchanged-large.go").write_text("quiet context\n" * 40)
+        (root / "inactive/deep").mkdir(parents=True)
+        (root / "inactive/deep/untouched.go").write_text("hidden context\n")
         git(root, "add", ".")
         git(root, "-c", "user.name=Graph Test", "-c", "user.email=graph@example.invalid", "commit", "-qm", "baseline")
         for name, count in {"A/C/plus.go": 30, "A/D/minus.go": 10, "A/E/little.go": 2, "B/Y/other.go": 6}.items():
@@ -35,30 +39,43 @@ def main():
         terminal = Terminal(binary, root)
         try:
             terminal.resize(160, 48)
-            terminal.frame(lambda raw, rows: "CHANGES" in raw and "plus.go" in raw)
+            terminal.frame(lambda raw, rows: mode(rows, "list") and "plus.go" in raw)
             terminal.send(b"\t")
-            raw, rows = terminal.frame(lambda raw, rows: "CLUSTERS" in raw and "5 files" in raw and all(label in raw for label in ["A/C/", "A/D/", "A/E/", "B/X/", "B/Y/"]))
-            assert any(re.search(r"(?:^|\s)A/(?:\s|$)", row) for row in rows)
-            assert any(re.search(r"(?:^|\s)B/(?:\s|$)", row) for row in rows)
-            assert all(name not in raw for name in ["plus.go", "minus.go", "little.go", "new.go", "other.go"])
+            raw, rows = terminal.frame(lambda raw, rows: mode(rows, "graph") and "7 files" in rows[-1] and all(label in raw for label in ["C/", "D/", "E/", "X/", "Y/"]))
+            assert any(re.search(r"(?:^|[\s─])A/(?:[\s─]|$)", row) for row in rows)
+            assert any(re.search(r"(?:^|[\s─])B/(?:[\s─]|$)", row) for row in rows)
+            assert sum(row.count("┌") for row in rows) == 7, "expected exactly seven active folder frames, without an implicit root"
+            assert "./" not in raw and all(label not in raw for label in ["A/C/", "A/D/", "A/E/", "B/X/", "B/Y/"])
+            assert "inactive/" not in raw and "deep/" not in raw, "untouched directory branches must be recursively absent"
+            assert all(char in raw for char in "┌┐└┘─│"), "folder frames must be rectangular"
+            assert all(name not in raw for name in ["plus.go", "minus.go", "little.go", "new.go", "other.go", "unchanged.go"])
             assert "●" not in raw and "•" not in raw
-            assert any(char in raw for char in "█▀▄")
-            assert "38;2;115;211;153" in raw and "38;2;244;92;105" in raw and "38;2;139;202;255" in raw
-            print("PASS: parent and child folder titles form the changed-file hierarchy without file labels")
-            print("PASS: graph uses solid block bubbles and persistent green/red/blue colors")
+            assert not any(char in raw for char in "█▀▄")
+            colors = {cell[3] for cell in braille_cells(raw)}
+            assert {GREEN, RED, BLUE} <= colors, colors
+            assert GRAY in colors, colors
+            print("PASS: nested folder hierarchy includes unchanged context without exposing file labels")
+            print("PASS: graph uses Braille dots in green/red/blue and gray, never solid blocks")
             evidence = Path(os.environ.get("TMPDIR", str(Path.home() / ".cache"))) / "diffplay-hierarchy-frame.ansi"
             evidence.write_text(raw)
             print(f"Captured terminal frame: {evidence}")
             terminal.send(b"n")
             terminal.frame(lambda raw, rows: "A/C/plus.go" in raw and "+30" in raw and "-10" in raw)
-            print("PASS: keyboard inspection exposes the +30/-10 file behind a green shell/red core bubble")
+            print("PASS: keyboard inspection exposes the +30/-10 dotted body/nucleus file")
+            terminal.send(b"n")
+            terminal.frame(lambda raw, rows: "A/C/unchanged-large.go" in raw and "40 file lines" in raw)
+            terminal.send(b"n")
+            terminal.frame(lambda raw, rows: "A/C/unchanged.go" in raw and "10 file lines" in raw)
+            print("PASS: differently sized gray context files expose exact current line counts")
             terminal.send(b"\x1b[<35;1;1M")
             terminal.frame(lambda raw, rows: "plus.go" not in raw)
             for width, height in [(80, 24), (40, 12), (160, 48)]:
                 terminal.resize(width, height)
                 terminal.frame(lambda raw, rows: len(rows) == height and all(len(row) == width for row in rows))
             terminal.send(b"\t")
-            terminal.frame(lambda raw, rows: "CHANGES" in raw and "plus.go" in raw)
+            terminal.frame(lambda raw, rows: mode(rows, "combined"))
+            terminal.send(b"\t")
+            terminal.frame(lambda raw, rows: mode(rows, "list") and "plus.go" in raw)
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
             assert terminal.proc.returncode == 0 and termios.tcgetattr(terminal.slave) == terminal.before

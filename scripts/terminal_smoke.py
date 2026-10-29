@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise the real terminal executable through a Linux pseudo-terminal."""
+import codecs
 import fcntl
 import json
 import os
@@ -14,6 +15,8 @@ import sys
 import tempfile
 import termios
 import time
+
+from list_smoke import BLUE, GREEN, RED, WHITE, braille_cells, mode
 
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
@@ -46,6 +49,7 @@ def main():
                                 stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
         buffer = ""
         all_tail = ""
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
 
         def frame(predicate=lambda raw, rows: True, timeout=8):
             nonlocal buffer, all_tail
@@ -53,12 +57,15 @@ def main():
             while time.monotonic() < deadline:
                 ready, _, _ = select.select([master], [], [], 0.1)
                 if ready:
-                    chunk = os.read(master, 262144).decode("utf-8", "replace")
+                    chunk = decoder.decode(os.read(master, 262144))
                     buffer += chunk
                     all_tail = (all_tail + chunk)[-300000:]
                     while "\x1b[H" in buffer:
                         start = buffer.index("\x1b[H")
-                        end = buffer.find("\x1b[0m", start)
+                        reset_start = start + len("\x1b[H")
+                        if buffer.startswith("\x1b[0m", reset_start):
+                            reset_start += len("\x1b[0m")
+                        end = buffer.find("\x1b[0m", reset_start)
                         if end < 0:
                             buffer = buffer[start:]
                             break
@@ -75,26 +82,32 @@ def main():
             os.write(master, data)
 
         try:
-            frame(lambda raw, rows: "Diffplay" in raw)
-            frame(lambda raw, rows: "tracked.txt" not in raw and "CLUSTERS" in raw)
+            raw, _ = frame(lambda raw, rows: mode(rows, "graph") and "tracked.txt" not in raw and "2 files" in rows[-1])
+            assert "one/" not in raw and "./" not in raw, "inactive nested folders and implicit root must be absent"
             (root / "new.txt").write_text("new file\n")
-            raw, rows = frame(lambda raw, rows: "1 files" in raw and "38;2;139;202;255" in raw)
-            assert "new.txt" not in raw
+            frame(lambda raw, rows: "3 files" in rows[-1] and any(
+                color == WHITE
+                for _, _, _, color in braille_cells(raw)))
+            print("PASS: live file change briefly flashes white before its normal color")
+            raw, rows = frame(lambda raw, rows: "3 files" in rows[-1] and any(color == BLUE for _, _, _, color in braille_cells(raw)))
+            assert "new.txt" in raw, "a live burst must select its file for inspection"
             print("PASS: new files appear with a light-blue change burst")
             (root / "tracked.txt").write_text("new content\n")
-            frame(lambda raw, rows: "2 files" in raw and "38;2;115;211;153" in raw)
+            frame(lambda raw, rows: "3 files" in rows[-1] and any(color == GREEN for _, _, _, color in braille_cells(raw)))
+            send(b"\x1b[<35;1;1M")  # Leave automatic inspection before hit testing.
+            frame(lambda raw, rows: "new.txt" not in raw and "tracked.txt" not in raw)
             send(b" ")  # Freeze positions for repeatable hit testing.
-            raw, rows = frame(lambda raw, rows: "LAYOUT PAUSED" in raw and "2 files" in raw and any(char in raw for char in "█▀▄"))
+            raw, rows = frame(lambda raw, rows: "PAUSED" in rows[-1] and "3 files" in rows[-1] and any("\u2801" <= char <= "\u28ff" for char in raw))
             assert "new.txt" not in raw and "tracked.txt" not in raw
-            assert "●" not in raw and "38;2;51;51;61" not in raw
-            centers = [(x, y) for y, row in enumerate(rows[2:-2], 2) for x, char in enumerate(row) if char in "█▀▄"]
+            assert "●" not in raw and not any(char in raw for char in "█▀▄")
+            centers = [(x, y) for y, row in enumerate(rows[2:-2], 2) for x, char in enumerate(row) if "\u2801" <= char <= "\u28ff"]
             inspected = False
             for x, y in centers:
                 send(b"\x1b[<35;1;1M")
                 frame(lambda raw, rows: "new.txt" not in raw and "tracked.txt" not in raw)
                 send(f"\x1b[<35;{x + 1};{y + 1}M".encode())
                 # Use a short timeout on edge cells whose center may lie just
-                # outside the circular hit radius; keep trying solid pixels.
+                # outside the circular hit radius; keep trying dotted cells.
                 try:
                     raw, _ = frame(lambda raw, rows: "new.txt" in raw or "tracked.txt" in raw, timeout=.5)
                 except AssertionError:
@@ -106,15 +119,15 @@ def main():
             print("PASS: mouse hover displays the actual previous-version diff")
             (root / "tracked.txt").unlink()
             send(b"\x1b[<35;1;1M")
-            frame(lambda raw, rows: "1 deleted" in raw and "38;2;244;92;105" in raw)
-            print("PASS: deleted files become solid red bubbles")
-            (root / "new-directory").mkdir()
-            (root / "new-directory/child.txt").write_text("child\n")
-            raw, _ = frame(lambda raw, rows: "new-directory/" in raw and "3 files" in raw)
-            assert "child.txt" not in raw
-            (root / "new-directory/child.txt").unlink()
-            (root / "new-directory").rmdir()
-            frame(lambda raw, rows: "2 deleted" in raw)
+            frame(lambda raw, rows: "3 files" in rows[-1] and any(color == RED for _, _, _, color in braille_cells(raw)))
+            print("PASS: deleted files become red dotted cells")
+            (root / "new").mkdir()
+            (root / "new/child.txt").write_text("child\n")
+            raw, _ = frame(lambda raw, rows: "new/" in raw and "4 files" in rows[-1])
+            frame(lambda raw, rows: "child.txt" in raw and "4 files" in rows[-1])
+            (root / "new/child.txt").unlink()
+            (root / "new").rmdir()
+            frame(lambda raw, rows: "3 files" in rows[-1] and "new/" not in raw)
             print("PASS: directory creation and recursive deletion update nodes")
             for width, height in [(80, 24), (160, 48), (20, 8), (120, 36)]:
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", height, width, 0, 0))
@@ -126,27 +139,66 @@ def main():
             deadline = time.monotonic() + 4.2
             while time.monotonic() < deadline:
                 frame()
-            for title in ["CHANGES", "SPIRAL", "HEX", "CLUSTERS"]:
+            for title in ["combined", "list", "graph"]:
                 send(b"\t")
-                raw, _ = frame(lambda raw, rows: "Diffplay  " + title in raw)
-                if title in ("SPIRAL", "HEX"):
+                raw, _ = frame(lambda raw, rows: mode(rows, title))
+                if title == "graph":
+                    # The preceding Hex check can generate a live edit burst.
+                    deadline = time.monotonic() + 4.2
+                    while time.monotonic() < deadline:
+                        frame()
+                    def glyphs(rows):
+                        return {(x, y, char) for y, row in enumerate(rows[2:-2], 2)
+                                for x, char in enumerate(row)
+                                if "\u2801" <= char <= "\u28ff"}
+
+                    # Shared list selection can carry a halo/inspector into the
+                    # full graph. Clear it before testing camera-only motion.
+                    send(b"\x1b[<35;1;1M")
+                    baseline_raw, baseline = frame(lambda raw, rows: mode(rows, title) and not any(name in raw for name in [".hidden", "new.txt", "tracked.txt", "child.txt"]))
+                    original = glyphs(baseline)
+                    assert original, "expected graph glyphs"
+                    send(b"\x1b[<0;2;3M\x1b[<32;5;5M\x1b[<0;5;5m")
+                    expected = {(x + 3, y + 2, char) for x, y, char in original
+                                if 2 <= y + 2 < len(baseline) - 2 and x + 3 < 120}
+                    try:
+                        frame(lambda raw, rows: mode(rows, title) and glyphs(rows) == expected)
+                    except AssertionError:
+                        actual_raw, actual_rows = frame()
+                        Path(scratch, "diffplay-pan-baseline.ansi").write_text(baseline_raw)
+                        Path(scratch, "diffplay-pan-actual.ansi").write_text(actual_raw)
+                        actual = glyphs(actual_rows)
+                        print("Pan raster mismatch: missing", sorted(expected - actual), "extra", sorted(actual - expected))
+                        raise
+                    send(b"r")
+                    frame(lambda raw, rows: mode(rows, title) and glyphs(rows) == original)
+                    send(b"\x1b[<64;30;12M")
+                    frame(lambda raw, rows: mode(rows, title) and glyphs(rows) != original)
+                    send(b"r")
+                    frame(lambda raw, rows: mode(rows, title) and glyphs(rows) == original)
+                    # Exercise fragmented wheel input and reset through the real PTY.
+                    send(b"\x1b[<64;30;")
+                    send(b"12M\x1b[<65;30;12M")
+                    raw, _ = frame(lambda raw, rows: mode(rows, title) and glyphs(rows) == original)
+                    print(f"PASS: {title} mouse pan, reset, and fragmented wheel input")
+                if title == "graph":
                     assert "new.txt" not in raw and "tracked.txt" not in raw
-                    stable, _ = frame(lambda raw, rows: "Diffplay  " + title in raw)
+                    stable, _ = frame(lambda raw, rows: mode(rows, title))
                     assert stable == raw, "idle clusters must be stationary"
-                    send(b"nn")  # child.txt, then new.txt in stable path order
-                    raw, _ = frame(lambda raw, rows: title in raw and "new.txt" in raw)
+                    send(b"nn")  # .hidden, then new.txt in stable path order
+                    raw, _ = frame(lambda raw, rows: mode(rows, title) and "new.txt" in raw)
                     assert "+new file" in raw
-                    if title == "HEX":
+                    if title == "graph":
                         assert "1 dot" in raw
                         (root / "new.txt").write_text("live cluster edit\n")
-                        frame(lambda raw, rows: "HEX" in raw and "+live cluster edit" in raw)
+                        frame(lambda raw, rows: mode(rows, title) and "+live cluster edit" in raw)
                     send(b"\x1b[<35;1;1M")
-                    frame(lambda raw, rows: title in raw and "new.txt" not in raw)
-            print("PASS: Tab cycles cluster algorithms; idle positions and live diff inspection work")
+                    frame(lambda raw, rows: mode(rows, title) and "new.txt" not in raw)
+            print("PASS: Tab cycles graph/combined/list; idle positions and live diff inspection work")
             send(b"q")
             proc.wait(timeout=5)
             while select.select([master], [], [], 0.1)[0]:
-                all_tail += os.read(master, 262144).decode("utf-8", "replace")
+                all_tail += decoder.decode(os.read(master, 262144))
             assert proc.returncode == 0
             assert "\x1b[?1006l" in all_tail and "\x1b[?1049l" in all_tail
             assert termios.tcgetattr(slave) == before
