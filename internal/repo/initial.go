@@ -18,9 +18,18 @@ import (
 
 type object struct{ mode, oid string }
 
+// HeadChanges provides live previews without changing interval event statistics.
+func (r *Repository) HeadChanges(current watch.Snapshot, now time.Time) ([]watch.Event, error) {
+	return r.InitialChanges(current, now)
+}
+
 func (r *Repository) tree(head string) (map[string]object, error) {
+	if r.baselineTree != nil && r.baselineHead == head {
+		return r.baselineTree, nil
+	}
 	out := map[string]object{}
 	if head == "" {
+		r.cacheBaseline(head, out)
 		return out, nil
 	}
 	raw, err := r.command("ls-tree", "-r", "-z", head, "--", ".")
@@ -38,9 +47,20 @@ func (r *Repository) tree(head string) (map[string]object, error) {
 		}
 		out[p] = object{fields[0], fields[2]}
 	}
+	r.cacheBaseline(head, out)
 	return out, nil
 }
+
+func (r *Repository) cacheBaseline(head string, tree map[string]object) {
+	r.baselineHead, r.baselineTree = head, tree
+	r.baselineEntries = make(map[object]watch.Entry)
+}
+
 func (r *Repository) entry(p string, o object) (watch.Entry, error) {
+	if e, ok := r.baselineEntries[o]; ok {
+		e.Path = p
+		return e, nil
+	}
 	e := watch.Entry{Path: p}
 	if o.mode == "160000" {
 		e.IsDir = true
@@ -89,6 +109,10 @@ func (r *Repository) entry(p string, o object) (watch.Entry, error) {
 		if utf8.Valid(text) {
 			e.Content = append([]byte{}, text...)
 		}
+	}
+	// HEAD blobs are immutable; invalidate the bounded cache when HEAD changes.
+	if r.baselineEntries != nil {
+		r.baselineEntries[o] = e
 	}
 	return e, nil
 }

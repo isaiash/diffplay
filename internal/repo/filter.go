@@ -22,12 +22,8 @@ func validPath(p string) bool {
 	return p != "" && !strings.ContainsRune(p, 0) && !strings.HasPrefix(p, "/") && path.Clean(p) == p && p != ".." && !strings.HasPrefix(p, "../") && !metadata(p)
 }
 
-// FilterPaths refreshes Git ignore rules and returns root-relative allowances.
-// Missing paths remain allowed unless ignored, so real deletions survive. Paths
-// tracked in the index or HEAD (including staged deletions) override ignores.
-// Metadata and out-of-scope paths are false. This is independent of scan depth.
-// On error callers must retain their previous state, not assume paths are hidden.
-func (r *Repository) FilterPaths(paths []string) (map[string]bool, error) {
+// TrackedPaths returns the union of index and HEAD paths and their ancestors.
+func (r *Repository) TrackedPaths() (map[string]bool, error) {
 	cached, err := r.command("ls-files", "--cached", "-z", "--", ".")
 	if err != nil {
 		return nil, err
@@ -45,6 +41,19 @@ func (r *Repository) FilterPaths(paths []string) (map[string]bool, error) {
 		for p := range parents(tree) {
 			tracked[p] = true
 		}
+	}
+	return tracked, nil
+}
+
+// FilterPaths refreshes Git ignore rules and returns root-relative allowances.
+// Missing paths remain allowed unless ignored, so real deletions survive. Paths
+// tracked in the index or HEAD (including staged deletions) override ignores.
+// Metadata and out-of-scope paths are false. This is independent of scan depth.
+// On error callers must retain their previous state, not assume paths are hidden.
+func (r *Repository) FilterPaths(paths []string) (map[string]bool, error) {
+	tracked, err := r.TrackedPaths()
+	if err != nil {
+		return nil, err
 	}
 	out := make(map[string]bool, len(paths))
 	var input strings.Builder

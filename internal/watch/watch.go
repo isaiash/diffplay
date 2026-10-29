@@ -25,6 +25,12 @@ type Entry struct {
 	Content   []byte
 	Hash      [32]byte
 	Truncated bool
+	// Lines counts newlines plus an unterminated final line (empty text is zero).
+	// LinesKnown requires a complete regular UTF-8 file without NUL bytes, read
+	// within HashLimit. Larger sampled files and non-text nodes remain unknown;
+	// a truncated Content prefix alone never supplies a full-file line count.
+	Lines      int
+	LinesKnown bool
 }
 type Snapshot map[string]Entry
 
@@ -33,6 +39,63 @@ type Snapshot map[string]Entry
 // so changes solely in the unsampled middle with unchanged metadata can be missed.
 const ContentLimit = 256 * 1024
 const HashLimit = 8 * 1024 * 1024
+
+// textCounter validates UTF-8 across read boundaries without retaining file data.
+// At most one incomplete rune is carried to the next Write.
+type textCounter struct {
+	lines   int
+	bytes   int64
+	last    byte
+	invalid bool
+	pending []byte
+}
+
+func (c *textCounter) Write(p []byte) (int, error) {
+	n := len(p)
+	c.bytes += int64(n)
+	c.lines += bytes.Count(p, []byte{'\n'})
+	if n > 0 {
+		c.last = p[n-1]
+	}
+	if bytes.IndexByte(p, 0) >= 0 {
+		c.invalid = true
+	}
+	if c.invalid {
+		return n, nil
+	}
+	if len(c.pending) > 0 {
+		for len(p) > 0 && !utf8.FullRune(c.pending) {
+			c.pending = append(c.pending, p[0])
+			p = p[1:]
+		}
+		if !utf8.FullRune(c.pending) {
+			return n, nil
+		}
+		r, size := utf8.DecodeRune(c.pending)
+		if r == utf8.RuneError && size == 1 {
+			c.invalid = true
+			return n, nil
+		}
+		c.pending = c.pending[:0]
+	}
+	for len(p) > 0 {
+		if p[0] < utf8.RuneSelf {
+			p = p[1:]
+			continue
+		}
+		if !utf8.FullRune(p) {
+			c.pending = append(c.pending[:0], p...)
+			break
+		}
+		r, size := utf8.DecodeRune(p)
+		if r == utf8.RuneError && size == 1 {
+			c.invalid = true
+			break
+		}
+		p = p[size:]
+	}
+	return n, nil
+}
 
 func capture(path string, e *Entry) error {
 	f, err := os.Open(path)
@@ -46,7 +109,9 @@ func capture(path string, e *Entry) error {
 		return err
 	}
 	h.Write(prefix)
-	if _, err = io.Copy(h, io.LimitReader(f, HashLimit-int64(len(prefix)))); err != nil {
+	counter := &textCounter{}
+	_, _ = counter.Write(prefix)
+	if _, err = io.Copy(io.MultiWriter(h, counter), io.LimitReader(f, HashLimit-int64(len(prefix)))); err != nil {
 		return err
 	}
 	if e.Size > HashLimit {
@@ -68,6 +133,15 @@ func capture(path string, e *Entry) error {
 	}
 	if !bytes.ContainsRune(prefix, 0) && utf8.Valid(text) {
 		e.Content = append([]byte{}, text...)
+	}
+	// Count only fully read and validated text. Sampled files deliberately stay
+	// unknown: neither prefix counts nor byte-size estimates describe their lines.
+	if e.Size <= HashLimit && counter.bytes == e.Size && !counter.invalid && len(counter.pending) == 0 {
+		e.LinesKnown = true
+		e.Lines = counter.lines
+		if counter.bytes > 0 && counter.last != '\n' {
+			e.Lines++
+		}
 	}
 	return nil
 }

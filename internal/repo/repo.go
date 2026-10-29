@@ -8,13 +8,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/isaiash/diffplay/internal/watch"
 )
 
 var ErrNotRepository = errors.New("not a Git working tree")
 
 type Repository struct {
-	root  string
-	depth int
+	root            string
+	depth           int
+	lineTotals      map[string]lineTotalEntry
+	baselineHead    string
+	baselineTree    map[string]object
+	baselineEntries map[object]watch.Entry
 }
 
 // Open discovers a working tree while retaining root as the snapshot scope.
