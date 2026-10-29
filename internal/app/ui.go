@@ -9,19 +9,32 @@ import (
 	"unicode"
 )
 
-type rgb struct{ r, g, b int }
+type rgb struct {
+	r, g, b int
+	dim     bool
+}
 
-// Palette index + 1, theme marker, dim attribute; zero remains unspecified.
+// A negative green channel marks a palette index; zero remains unspecified.
 var gray = rgb{}
-var white = rgb{16, -1, 0}
-var blue = rgb{5, -1, 0}
-var red = rgb{2, -1, 0}
-var muted = rgb{0, 0, 1}
-var background = rgb{0, -1, 0}
-var headerInk = rgb{1, -1, 0}
-var selectedBackground = rgb{9, -1, 0}
+var white = rgb{r: 16, g: -1}
+var blue = rgb{r: 139, g: 202, b: 255}
+var red = rgb{r: 244, g: 92, b: 105}
+var muted = rgb{dim: true}
+var background = rgb{g: -1}
+var headerInk = rgb{r: 1, g: -1}
+var selectedBackground = rgb{r: 9, g: -1}
 
 func (color rgb) sgr(bg bool) string {
+	intensity := 22
+	if color.dim {
+		intensity = 2
+	}
+	if color.g >= 0 && (color.r != 0 || color.g != 0 || color.b != 0) {
+		if bg {
+			return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", color.r, color.g, color.b)
+		}
+		return fmt.Sprintf("\x1b[%d;38;2;%d;%d;%dm", intensity, color.r, color.g, color.b)
+	}
 	code := 39
 	if bg {
 		code = 49
@@ -38,10 +51,6 @@ func (color rgb) sgr(bg bool) string {
 	}
 	if bg {
 		return fmt.Sprintf("\x1b[%dm", code)
-	}
-	intensity := 22
-	if color.b == 1 {
-		intensity = 2
 	}
 	return fmt.Sprintf("\x1b[%d;%dm", intensity, code)
 }
@@ -115,13 +124,13 @@ func blend(a, b rgb, t float64) rgb {
 	if t == 1 {
 		return b
 	}
-	// shortcut: unknown theme RGB makes fades discrete; use dim and bright ANSI steps.
+	// shortcut: unknown theme RGB makes background fades discrete; use dim steps.
 	if b == background {
 		if t >= .85 {
 			return b
 		}
 		if t >= .25 {
-			a.b = 1
+			a.dim = true
 		}
 		return a
 	}
@@ -130,11 +139,18 @@ func blend(a, b rgb, t float64) rgb {
 			return a
 		}
 		if t < .65 {
-			b.b = 1
+			b.dim = true
 		}
 		return b
 	}
 	if b == white {
+		if a.g >= 0 && (a.r != 0 || a.g != 0 || a.b != 0) {
+			a.r = int(math.Round(float64(a.r) + (255-float64(a.r))*t))
+			a.g = int(math.Round(float64(a.g) + (255-float64(a.g))*t))
+			a.b = int(math.Round(float64(a.b) + (255-float64(a.b))*t))
+			a.dim = false
+			return a
+		}
 		if t < .25 {
 			return a
 		}
@@ -144,7 +160,7 @@ func blend(a, b rgb, t float64) rgb {
 		if a.g == -1 && a.r >= 1 && a.r <= 8 {
 			a.r += 8
 		}
-		a.b = 0
+		a.dim = false
 		return a
 	}
 	if t < .5 {
@@ -166,7 +182,7 @@ func (c *canvas) ansi() string {
 	var b strings.Builder
 	b.Grow(c.w * c.h * 3)
 	b.WriteString("\x1b[H\x1b[0m\x1b[49m")
-	last := rgb{-1, -1, -1}
+	last := rgb{r: -1, g: -1, b: -1}
 	lastBG := background
 	struck := false
 	reversed := false

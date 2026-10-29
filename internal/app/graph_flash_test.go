@@ -58,7 +58,10 @@ func TestGraphRippleExpandsQuicklyAndFades(t *testing.T) {
 			if d > radius+1.5 {
 				far = math.Max(far, d)
 				if cell.color != background {
-					brightness += 2 - cell.color.b
+					brightness += 2
+					if cell.color.dim {
+						brightness--
+					}
 				}
 				count++
 			}

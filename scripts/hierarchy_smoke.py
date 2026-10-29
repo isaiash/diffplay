@@ -9,6 +9,7 @@ import tempfile
 import termios
 
 from list_smoke import BLUE, GREEN, RED, Terminal, braille_cells, mode
+from contrast_smoke import cells
 
 
 def git(root, *args):
@@ -53,7 +54,8 @@ def main():
             assert not any(char in raw for char in "█▀▄")
             colors = {cell[3] for cell in braille_cells(raw)}
             assert {GREEN, RED, BLUE} <= colors, colors
-            assert None in colors and "\x1b[2;39m" in raw, colors
+            assert any("\u2801" <= ch <= "\u28ff" and fg is None and dim and not reverse
+                       for ch, fg, _, dim, reverse, _ in cells(raw).values()), colors
             print("PASS: nested folder hierarchy includes unchanged context without exposing file labels")
             print("PASS: graph uses Braille dots in green/red/blue and gray, never solid blocks")
             evidence = Path(os.environ.get("TMPDIR", str(Path.home() / ".cache"))) / "diffplay-hierarchy-frame.ansi"

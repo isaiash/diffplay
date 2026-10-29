@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 
-from list_smoke import BLUE, GREEN, RED, Terminal, header_backgrounds, header_prefix, mode
+from list_smoke import BLUE, GREEN, RED, Terminal, braille_cells, colored_cells, divider, header_backgrounds, header_prefix, mode
 
 
 def git(root, *args):
@@ -67,12 +67,12 @@ def header_integration(binary, parent):
     terminal = Terminal(binary, root)
     colors = [BLUE, GREEN, RED, None]
 
-    def expect(label, blue, green, red, denominator):
+    def expect(label, blue, green, red, denominator, view="list"):
         added = blue + green
         net = added - red
         metrics = (f" +{added}" if added else "") + (f" -{red}" if red else "")
         expected = f"{root.name}{metrics} {100 * net / denominator:.2f}% new lines"
-        raw, rows = terminal.frame(lambda raw, rows: mode(rows, "list") and header_prefix(rows[0]) == expected)
+        raw, rows = terminal.frame(lambda raw, rows: mode(rows, view) and header_prefix(rows[0]) == expected)
         assert rows[0].endswith(f"{denominator} total lines"), (label, rows[0])
         assert str(root) not in rows[0], (label, rows[0])
         assert "|" not in rows[0], rows[0]
@@ -95,6 +95,37 @@ def header_integration(binary, parent):
     try:
         terminal.resize(160, 48)
         raw = expect("startup", 4, 2, 4, 109)
+        def check_rows(raw):
+            cells = colored_cells(raw)
+            rows = raw.split("\r\n")
+            for name, counts in (("new.txt", {"+4": BLUE}),
+                                 ("edited.txt", {"+2": GREEN, "-1": RED}),
+                                 ("removed.txt", {"-3": RED})):
+                y = next(y for y, row in enumerate(rows) if name in row)
+                line = [(x, ch, color) for x, line_y, ch, color in cells if line_y == y]
+                plain = "".join(ch for _, ch, _ in line)
+                for text, expected in counts.items():
+                    x = plain.index(text)
+                    assert all(line[i][2] == expected for i in range(x, x + len(text))), (name, text, line)
+                center = plain.index("│")
+                left = [color for _, ch, color in line[:center] if ch == "█"]
+                right = [color for _, ch, color in line[center + 1:plain.index(name)] if ch == "█"]
+                assert left == {"new.txt": [BLUE] * 4, "edited.txt": [GREEN] * 2, "removed.txt": []}[name], (name, left)
+                assert right == {"new.txt": [], "edited.txt": [RED], "removed.txt": [RED] * 3}[name], (name, right)
+
+        check_rows(raw)
+        terminal.send(b"\t\t")
+        raw = expect("combined startup", 4, 2, 4, 109, "combined")
+        check_rows(raw)
+        terminal.send(b"\x1b[<35;1;26M")
+        raw, rows = terminal.frame(lambda raw, rows: mode(rows, "combined") and {BLUE, GREEN, RED} <= {color for _, y, _, color in braille_cells(raw) if y > divider(rows)})
+        terminal.send(b"\t\t")
+        raw, rows = terminal.frame(lambda raw, rows: mode(rows, "graph"))
+        terminal.send(b"\x1b[<35;1;1M")
+        raw, rows = terminal.frame(lambda raw, rows: mode(rows, "graph") and {BLUE, GREEN, RED} <= {color for _, _, _, color in braille_cells(raw)})
+        print("PASS: fixed RGB counts and histogram glyphs in list/combined, graph glyphs in graph/combined")
+        terminal.send(b"\t\t")
+        raw = expect("list after view cycle", 4, 2, 4, 109)
         evidence = Path(os.environ.get("TMPDIR", str(Path.home() / ".cache"))) / "diffplay-header-frame.ansi"
         evidence.write_text(raw)
         print(f"Captured terminal frame: {evidence}")

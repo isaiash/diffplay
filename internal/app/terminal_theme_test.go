@@ -8,7 +8,7 @@ import (
 
 func TestTerminalThemePaletteIndices(t *testing.T) {
 	for index := 0; index < 16; index++ {
-		color := rgb{index + 1, -1, 0}
+		color := rgb{r: index + 1, g: -1}
 		code := 30 + index
 		if index >= 8 {
 			code = 90 + index - 8
@@ -23,9 +23,7 @@ func TestTerminalThemePaletteIndices(t *testing.T) {
 	if (rgb{}).sgr(false) != "\x1b[22;39m" || (rgb{}).sgr(true) != "\x1b[49m" {
 		t.Fatal("unset colors must retain terminal defaults")
 	}
-	if (rgb{38, 40, 49}).sgr(true) != "\x1b[49m" {
-		t.Fatal("legacy RGB must fall back to terminal default")
-	}
+
 }
 
 func TestTerminalThemeFadeDisappearsIntoDefaultBackground(t *testing.T) {
@@ -43,7 +41,7 @@ func TestTerminalThemeBackgroundAsInk(t *testing.T) {
 	c.cells[0] = cell{ch: '▀', color: background, bg: red}
 	c.put(1, 0, 'x', blue)
 	got := c.ansi()
-	for _, want := range []string{"\x1b[7m", "\x1b[22;31m▀", "\x1b[27m", "\x1b[22;34mx"} {
+	for _, want := range []string{"\x1b[7m", "\x1b[22;38;2;244;92;105m▀", "\x1b[27m", "\x1b[22;38;2;139;202;255mx"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing default-background half-cell SGR %q in %q", want, got)
 		}
@@ -51,14 +49,14 @@ func TestTerminalThemeBackgroundAsInk(t *testing.T) {
 }
 
 func TestTerminalThemeFadeAndFlash(t *testing.T) {
-	if got := blend(red, background, .5); got == red || got == background || got.g != -1 || got.b != 1 {
-		t.Fatalf("fade needs dim theme red, got %v", got)
+	if got := blend(red, background, .5); got != (rgb{r: 244, g: 92, b: 105, dim: true}) {
+		t.Fatalf("fade needs dim truecolor red, got %v", got)
 	}
 	if got := blend(red, background, 1); got != background {
 		t.Fatalf("fade endpoint=%v", got)
 	}
-	if got := blend(red, white, .45); got == red || got == white || got.g != -1 {
-		t.Fatalf("flash needs bright theme red, got %v", got)
+	if got := blend(red, white, .45); got != (rgb{r: 249, g: 165, b: 173}) {
+		t.Fatalf("flash needs bright truecolor red, got %v", got)
 	}
 	if got := blend(background, red, 0); got != background {
 		t.Fatalf("zero flash=%v", got)
@@ -68,7 +66,7 @@ func TestTerminalThemeFadeAndFlash(t *testing.T) {
 	c.put(1, 0, 'b', red)
 	c.put(2, 0, 'c', blend(red, white, .45))
 	got := c.ansi()
-	for _, want := range []string{"\x1b[2;31ma", "\x1b[22;31mb", "\x1b[22;91mc"} {
+	for _, want := range []string{"\x1b[2;38;2;244;92;105ma", "\x1b[22;38;2;244;92;105mb", "\x1b[22;38;2;249;165;173mc"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing fade SGR %q in %q", want, got)
 		}
@@ -83,14 +81,12 @@ func TestTerminalThemeCanvasUsesDefaultsAndPalette(t *testing.T) {
 	c.put(2, 0, 'c', white)
 	c.put(3, 0, 'd', gray)
 	got := c.ansi()
-	for _, want := range []string{"\x1b[49m", "\x1b[44m", "\x1b[22;31m", "\x1b[22;39m", "\x1b[22;97m", "\x1b[22;39md"} {
+	for _, want := range []string{"\x1b[49m", "\x1b[48;2;139;202;255m", "\x1b[22;38;2;244;92;105m", "\x1b[22;39m", "\x1b[22;97m", "\x1b[22;39md"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing theme SGR %q in %q", want, got)
 		}
 	}
-	if strings.Contains(got, ";2;") || strings.Contains(got, ";5;") {
-		t.Fatalf("non-theme color in %q", got)
-	}
+
 	if !strings.Contains(got, "a\x1b[49m\x1b[22;39mb") {
 		t.Fatalf("palette colors leaked into default cell: %q", got)
 	}

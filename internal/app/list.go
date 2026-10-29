@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var green = rgb{3, -1, 0}
+var green = rgb{r: 115, g: 211, b: 153}
 
 func (u *ui) recordChange(id, kind string, dir bool, diff string, added, removed int, known bool, at time.Time) {
 	u.history.record(id, kind, dir, diff, added, removed, known, at)

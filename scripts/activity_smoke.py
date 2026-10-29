@@ -11,7 +11,7 @@ import tempfile
 import termios
 import time
 
-from list_smoke import ANSI, WHITE, Terminal, divider, mode, sgr_colors
+from list_smoke import ANSI, WHITE, Terminal, divider, mode, sgr_colors, sgr_inverse
 
 
 def effective_cells(raw):
@@ -27,19 +27,7 @@ def effective_cells(raw):
                 x += 1
             code = match.group()
             fg, bg = sgr_colors(code, fg, bg)
-            if code.endswith("m"):
-                values = [int(value or 0) for value in code[2:-1].split(";")]
-                i = 0
-                while i < len(values):
-                    value = values[i]
-                    if value in (38, 48) and values[i + 1:i + 2] == [2]:
-                        i += 5
-                        continue
-                    if value == 0:
-                        inverse = False
-                    elif value in (7, 27):
-                        inverse = value == 7
-                    i += 1
+            inverse = sgr_inverse(code, inverse)
             offset = match.end()
         for char in line[offset:]:
             cells[x, y] = (char, bg if inverse else fg)
@@ -56,6 +44,7 @@ def parser_check():
     assert [cells[x, 0][1] for x in range(2)] == [WHITE, 4]
     assert [cells[x, 1][1] for x in range(5)] == [4, WHITE, None, None, None]
     assert effective_cells("\x1b[38;2;7;27;0mA")[0, 0] == ("A", (7, 27, 0))
+    assert effective_cells("\x1b[7;48;5;0mA")[0, 0] == ("A", 0)
     decoder = codecs.getincrementaldecoder("utf-8")("replace")
     encoded = "›✦".encode()
     assert "".join(decoder.decode(bytes([byte])) for byte in encoded) == "›✦"

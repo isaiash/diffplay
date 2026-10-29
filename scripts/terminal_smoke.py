@@ -85,13 +85,13 @@ def main():
             raw, _ = frame(lambda raw, rows: mode(rows, "graph") and "tracked.txt" not in raw and "2 files" in rows[-1])
             assert "one/" not in raw and "./" not in raw, "inactive nested folders and implicit root must be absent"
             (root / "new.txt").write_text("new file\n")
-            frame(lambda raw, rows: "3 files" in rows[-1] and any(
+            frame(lambda raw, rows: "new.txt" in raw and "3 files" in rows[-1] and any(
                 color == WHITE
                 for _, _, _, color in braille_cells(raw)))
-            print("PASS: live file change briefly flashes white before its normal color")
+            print("PASS: live inspection selects white graph glyphs")
             raw, rows = frame(lambda raw, rows: "3 files" in rows[-1] and any(color == BLUE for _, _, _, color in braille_cells(raw)))
             assert "new.txt" in raw, "a live burst must select its file for inspection"
-            print("PASS: new files appear with a light-blue change burst")
+            print("PASS: new files render fixed blue graph glyphs")
             (root / "tracked.txt").write_text("new content\n")
             frame(lambda raw, rows: "3 files" in rows[-1] and any(color == GREEN for _, _, _, color in braille_cells(raw)))
             send(b"\x1b[<35;1;1M")  # Leave automatic inspection before hit testing.

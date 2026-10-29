@@ -17,7 +17,8 @@ import time
 
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 HEADER = re.compile(r"^.+?(?: \+\d+\??| \+\?)*(?: -\d+\??| -\?)* (?:-?\d+\.\d{2}|\?)% new lines")
-BLACK, RED, GREEN, BLUE, GRAY, WHITE = 0, 1, 2, 4, 8, 15
+BLACK, GRAY, WHITE = 0, 8, 15
+BLUE, GREEN, RED = (139, 202, 255), (115, 211, 153), (244, 92, 105)
 
 
 def sgr_colors(code, fg, bg):
@@ -46,24 +47,48 @@ def sgr_colors(code, fg, bg):
             else:
                 bg = color
             i += 4
+        elif value in (38, 48) and values[i + 1:i + 2] == [5]:
+            assert len(values) > i + 2, code
+            if value == 38:
+                fg = values[i + 2]
+            else:
+                bg = values[i + 2]
+            i += 2
         i += 1
     return fg, bg
+
+
+def sgr_inverse(code, inverse):
+    if code.endswith("m"):
+        values = [int(value or 0) for value in code[2:-1].split(";")]
+        i = 0
+        while i < len(values):
+            value = values[i]
+            if value in (38, 48) and values[i + 1:i + 2] in ([2], [5]):
+                i += 5 if values[i + 1] == 2 else 3
+                continue
+            if value in (0, 7, 27):
+                inverse = value == 7
+            i += 1
+    return inverse
 
 
 def colored_cells(raw):
     """Track effective foreground across rows without altering glyph masks."""
     fg = bg = None
+    inverse = False
     cells = []
     for y, line in enumerate(raw.split("\r\n")):
         x, offset = 0, 0
         for match in ANSI.finditer(line):
             for char in line[offset:match.start()]:
-                cells.append((x, y, char, fg))
+                cells.append((x, y, char, bg if inverse else fg))
                 x += 1
             fg, bg = sgr_colors(match.group(), fg, bg)
+            inverse = sgr_inverse(match.group(), inverse)
             offset = match.end()
         for char in line[offset:]:
-            cells.append((x, y, char, fg))
+            cells.append((x, y, char, bg if inverse else fg))
             x += 1
     return cells
 
@@ -76,7 +101,10 @@ def parser_check():
     assert sgr_colors("\x1b[39;49m", WHITE, BLUE) == (None, None)
     assert sgr_colors("\x1b[0m", WHITE, BLUE) == (None, None)
     assert sgr_colors("\x1b[38;2;1;2;3;48;2;4;5;6m", None, None) == ((1, 2, 3), (4, 5, 6))
+    assert sgr_colors("\x1b[22;38;2;139;202;255;48;2;244;92;105m", None, None) == (BLUE, RED)
+    assert sgr_colors("\x1b[38;5;4;48;5;1m", None, None) == (4, 1)
     assert colored_cells("\x1b[97m⣿\r\n⡇\x1b[39m⠁") == [(0, 0, "⣿", WHITE), (0, 1, "⡇", WHITE), (1, 1, "⠁", None)]
+    assert colored_cells("\x1b[22;38;2;139;202;255;48;2;244;92;105;7mA\r\nB\x1b[27mC") == [(0, 0, "A", RED), (0, 1, "B", RED), (1, 1, "C", BLUE)]
 
 
 parser_check()
@@ -91,12 +119,13 @@ def header_prefix(row):
 def header_backgrounds(raw):
     """Decode effective theme/RGB background for each first-row cell."""
     line = raw.split("\r\n", 1)[0]
-    colors, bg, offset = [], None, 0
+    colors, fg, bg, inverse, offset = [], None, None, False, 0
     for match in ANSI.finditer(line):
-        colors.extend([bg] * len(line[offset:match.start()]))
-        _, bg = sgr_colors(match.group(), None, bg)
+        colors.extend([fg if inverse else bg] * len(line[offset:match.start()]))
+        fg, bg = sgr_colors(match.group(), fg, bg)
+        inverse = sgr_inverse(match.group(), inverse)
         offset = match.end()
-    colors.extend([bg] * len(line[offset:]))
+    colors.extend([fg if inverse else bg] * len(line[offset:]))
     return colors
 
 
