@@ -21,8 +21,8 @@ func TestBubbleDominantShellAndMinorityCore(t *testing.T) {
 	}
 	n := &node{kind: "modified", fresh: true, added: 30, removed: 10}
 	outer, inner, ratio := bubblePalette(n)
-	if outer != blue || inner != blue || ratio != 0 {
-		t.Fatal("a new file must stay entirely blue even after edits")
+	if outer != blue || inner != red || ratio != .25 {
+		t.Fatal("a fresh mixed file must retain its red minority nucleus")
 	}
 	n.kind = "deleted"
 	outer, inner, ratio = bubblePalette(n)
@@ -31,60 +31,19 @@ func TestBubbleDominantShellAndMinorityCore(t *testing.T) {
 	}
 }
 
-func TestSolidBubbleHasNoInteriorGlyphHoles(t *testing.T) {
-	u := newUI(newGraph(), "/repo")
-	u.width = 80
-	u.height = 30
-	n := &node{x: 30, y: 10, kind: "modified", added: 30, removed: 10}
-	c := newCanvas(80, 30)
-	u.drawFileDisk(c, n, 6)
-	// Actual render center is centered within the terminal cell.
-	for yy := 0; yy < c.h; yy++ {
-		for xx := 0; xx < c.w; xx++ {
-			cell := c.cells[yy*c.w+xx]
-			for half := 0; half < 2; half++ {
-				dx := float64(xx) - 30
-				dy := (float64(yy) + .25 + float64(half)*.5 - 12.5) * 2
-				if dx*dx+dy*dy >= 25 {
-					continue
-				}
-				upper, lower := solidCellColors(cell)
-				color := upper
-				if half == 1 {
-					color = lower
-				}
-				if color != green && color != red {
-					t.Fatalf("interior hole at %d,%d/%d: %+v", xx, yy, half, cell)
-				}
-			}
-		}
-	}
-	centerUpper, centerLower := solidCellColors(c.cells[12*c.w+30])
-	if centerUpper != red || centerLower != red {
-		t.Fatal("minority red must fill the nucleus")
-	}
-	outerUpper, _ := solidCellColors(c.cells[12*c.w+35])
-	if outerUpper != green {
-		t.Fatal("dominant green must form the shell")
-	}
-}
-
 func TestNewBubblePixelsAreEntirelyBlue(t *testing.T) {
 	u := newUI(newGraph(), "/repo")
 	u.width = 80
 	u.height = 30
-	n := &node{x: 30, y: 10, kind: "created", fresh: true, added: 30, removed: 10}
+	n := &node{x: 30, y: 10, kind: "created", fresh: true, added: 30}
 	c := newCanvas(80, 30)
 	u.drawFileDisk(c, n, 4)
 	painted := 0
 	for _, cell := range c.cells {
-		upper, lower := solidCellColors(cell)
-		for _, color := range []rgb{upper, lower} {
-			if color != background {
-				painted++
-				if color != blue {
-					t.Fatalf("new-file bubble has a non-blue pixel: %+v", color)
-				}
+		if cell.dots != 0 {
+			painted++
+			if cell.color != blue {
+				t.Fatalf("new-file bubble has a non-blue cell: %+v", cell)
 			}
 		}
 	}

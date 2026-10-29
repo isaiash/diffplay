@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var green = rgb{115, 211, 153}
+var green = rgb{3, -1, 0}
 
 func (u *ui) recordChange(id, kind string, dir bool, diff string, added, removed int, known bool, at time.Time) {
 	u.history.record(id, kind, dir, diff, added, removed, known, at)
@@ -27,11 +27,8 @@ func (u *ui) recordChange(id, kind string, dir bool, diff string, added, removed
 	}
 }
 func (u *ui) changeRows() []*changeRow {
-	if len(u.history.entries) == 0 {
-		return nil
-	}
 	var rows []*changeRow
-	for _, child := range u.history.tree().children {
+	for _, child := range u.presentationTree().children {
 		rows = append(rows, flattenChanges(child, u.open)...)
 	}
 	if len(rows) == 0 {
@@ -51,6 +48,7 @@ func (u *ui) changeRows() []*changeRow {
 	}
 }
 func (u *ui) listMove(delta int) {
+	defer u.syncListSelection()
 	rows := u.changeRows()
 	if len(rows) == 0 {
 		return
@@ -66,6 +64,7 @@ func (u *ui) listMove(delta int) {
 	u.scroll = 0
 }
 func (u *ui) listKey(key string) {
+	defer u.syncListSelection()
 	rows := u.changeRows()
 	if len(rows) == 0 {
 		return
@@ -106,9 +105,9 @@ func (u *ui) listKey(key string) {
 	case "F":
 		u.listSelected = rows[len(rows)-1].id
 	case "5~":
-		u.listMove(-max(1, u.height-4))
+		u.listMove(-max(1, u.listVisibleHeight(u.height)))
 	case "6~":
-		u.listMove(max(1, u.height-4))
+		u.listMove(max(1, u.listVisibleHeight(u.height)))
 	case "a":
 		for id := range u.open {
 			u.open[id] = true
@@ -125,12 +124,26 @@ func (u *ui) listKey(key string) {
 	}
 }
 func (u *ui) listWidth(w int) int {
+	if u.listSplitRatio > 0 && (u.combined && w >= 40 || !u.combined && w >= 120) {
+		return max(20, min(w-20, int(u.listSplitRatio*float64(w)+.5)))
+	}
+	if u.combined && w >= 40 {
+		return max(20, w/2-1)
+	}
 	if w >= 120 {
 		return w - min(70, w/2) - 1
 	}
 	return w
 }
+func (u *ui) listVisibleHeight(h int) int {
+	footer := 1
+	if u.combined {
+		footer = 0
+	}
+	return max(0, h-1-footer)
+}
 func (u *ui) listMouse(code, x, y int, release bool) {
+	defer u.syncListSelection()
 	if release {
 		return
 	}
@@ -139,14 +152,18 @@ func (u *ui) listMouse(code, x, y int, release bool) {
 		if code&1 == 0 {
 			delta = -3
 		}
+		if x >= u.listWidth(u.width) {
+			u.scroll = max(0, u.scroll+delta)
+			return
+		}
 		u.listMove(delta)
 		return
 	}
-	if y < 2 || y >= u.height-2 || x >= u.listWidth(u.width) {
+	if y < 1 || y >= 1+u.listVisibleHeight(u.height) || x >= u.listWidth(u.width) {
 		return
 	}
 	rows := u.changeRows()
-	index := u.listOffset + y - 2
+	index := u.listOffset + y - 1
 	if index < 0 || index >= len(rows) {
 		return
 	}
@@ -213,10 +230,12 @@ func paintHistogram(c *canvas, center, y, width, count, maximum, direction int, 
 	}
 }
 func (u *ui) renderList(w, h int, now time.Time) string {
+	return u.renderListCanvas(w, h, now).ansi()
+}
+func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 	c := newCanvas(w, h)
 	treeWidth := u.listWidth(w)
-	c.text(1, 0, "Diffplay  CHANGES", white, w-2)
-	c.text(1, 1, u.root+"  |  session activity · sorted by added lines ↓", gray, w-2)
+	u.renderSessionHeader(c)
 	countWidth := max(1, min(9, (treeWidth-10)/4))
 	// Reserve a third of the pane for paths before sizing the symmetric meter.
 	barSide := max(0, min(4, (treeWidth-treeWidth/3-2*countWidth-8)/2))
@@ -226,9 +245,24 @@ func (u *ui) renderList(w, h int, now time.Time) string {
 		barWidth = 2*barSide + 1
 	}
 	removedX := barX + barWidth + 1
-	treeX := removedX + countWidth + 2
+	removedWidth := 0
+	var measureRemoved func(*changeRow)
+	measureRemoved = func(r *changeRow) {
+		removedWidth = max(removedWidth, textWidth(signedCount("-", r.removed, r.unknown)))
+		for _, child := range r.children {
+			measureRemoved(child)
+		}
+	}
+	for _, child := range u.history.tree().children {
+		measureRemoved(child)
+	}
+	treeX := removedX + min(countWidth, removedWidth) + 1
+	if treeWidth < 20 {
+		treeX = 0
+		barSide = 0
+	}
 	rows := u.changeRows()
-	visible := max(0, h-4)
+	visible := u.listVisibleHeight(h)
 	selected := 0
 	for i, r := range rows {
 		if r.id == u.listSelected {
@@ -244,26 +278,39 @@ func (u *ui) renderList(w, h int, now time.Time) string {
 	}
 	u.listOffset = max(0, min(u.listOffset, max(0, len(rows)-visible)))
 	if len(rows) == 0 {
-		c.text(2, 4, "No changes observed since startup.", gray, w-4)
+		c.text(2, 1, "No changes observed since startup.", gray, w-4)
 	}
+	// Every file is normalized against the largest individual file edit in
+	// its repository, whether or not that file is currently visible. Collapsed
+	// folder sums may exceed the scale and are capped by the meter renderer.
 	maximum := make(map[string]int)
-	for i := u.listOffset; i < len(rows) && i-u.listOffset < visible; i++ {
-		r := rows[i]
-		if !r.dir || !u.open[r.id] {
+	for _, r := range u.history.entries {
+		if !r.dir {
 			group := u.histogramGroup(r.id)
 			maximum[group] = max(maximum[group], r.added, r.removed)
 		}
 	}
 	for i := u.listOffset; i < len(rows) && i-u.listOffset < visible; i++ {
 		row := rows[i]
-		y := 2 + i - u.listOffset
+		y := 1 + i - u.listOffset
 		color := green
 		if row.fresh {
 			color = blue
 		}
-		c.text(3, y, fmt.Sprintf("%*s", countWidth, signedCount("+", row.added, row.unknown)), color, countWidth)
-		// Align both counts toward the meter: one padding cell on either side.
-		c.text(removedX, y, fmt.Sprintf("%-*s", countWidth, signedCount("-", row.removed, row.unknown)), red, countWidth)
+		addedLabel := signedCount("+", row.added, row.unknown)
+		if treeWidth >= 20 {
+			if row.modifications > 0 {
+				spare := max(0, countWidth-textWidth(addedLabel)+1)
+				label := fmt.Sprint(row.modifications)
+				if len(label) > spare && spare > 0 {
+					label = label[:spare-1] + "…"
+				}
+				c.text(2, y, label, white, spare)
+			}
+			c.text(3+max(0, countWidth-textWidth(addedLabel)), y, addedLabel, color, min(countWidth, textWidth(addedLabel)))
+			// Align both counts toward the meter: one padding cell on either side.
+			c.text(removedX, y, fmt.Sprintf("%-*s", countWidth, signedCount("-", row.removed, row.unknown)), red, countWidth)
+		}
 
 		prefix := ""
 		if row.depth > 1 {
@@ -328,7 +375,7 @@ func (u *ui) renderList(w, h int, now time.Time) string {
 		baseBG := background
 		if row.id == u.listSelected {
 			c.put(0, y, '›', white)
-			baseBG = rgb{38, 40, 49}
+			baseBG = selectedBackground
 		}
 		rowBG := blend(baseBG, blend(flashColor, white, 0.45), strength)
 		for x := 0; x < min(treeWidth, w); x++ {
@@ -350,28 +397,30 @@ func (u *ui) renderList(w, h int, now time.Time) string {
 		}
 	}
 	if treeWidth < w {
-		for y := 2; y < h-2; y++ {
+		for y := 1; y < 1+visible; y++ {
 			c.put(treeWidth, y, '│', muted)
+		}
+		if u.dividerHover == 1 && u.dividerY >= 1 && u.dividerY < 1+visible {
+			c.put(treeWidth, u.dividerY, '↔', white)
 		}
 		if focus != nil {
 			px := treeWidth + 2
 			pw := w - px - 1
-			c.text(px, 2, u.displayPath(focus.id), white, pw)
+			c.text(px, 1, u.displayPath(focus.id), white, pw)
 			if focus.dir {
-				c.text(px, 4, "Folder totals include changed descendants.", gray, pw)
-				c.text(px, 6, "Right / click: expand", muted, pw)
-				c.text(px, 7, "Left / click: collapse", muted, pw)
+				c.text(px, 3, "Folder totals include changed descendants.", gray, pw)
+
 			} else {
 				kind := focus.kind
 				if focus.fresh && kind == "modified" {
 					kind = "new file · modified"
 				}
-				c.text(px, 3, kind, muted, pw)
+				c.text(px, 2, kind, muted, pw)
 				lines := strings.Split(focus.diff, "\n")
 				if focus.diff == "" {
 					lines = []string{"No text diff available."}
 				}
-				n := max(0, h-8)
+				n := max(0, visible-3)
 				u.scroll = min(u.scroll, max(0, len(lines)-n))
 				for i := 0; i < n && i+u.scroll < len(lines); i++ {
 					line := lines[i+u.scroll]
@@ -384,26 +433,13 @@ func (u *ui) renderList(w, h int, now time.Time) string {
 					} else if strings.HasPrefix(line, "-") {
 						color = red
 					}
-					c.text(px, 5+i, line, color, pw)
+					c.text(px, 4+i, diffText(line), color, pw)
 				}
-				c.text(px, h-3, "J/K scroll diff", muted, pw)
 			}
 		}
 	}
-	root := u.history.tree()
-	footer := "Session totals:"
-	for _, count := range []string{signedCount("+", root.added, root.unknown), signedCount("-", root.removed, root.unknown)} {
-		if count != "" {
-			footer += " " + count
-		}
+	if !u.combined {
+		c.text(1, h-1, "q quit · Tab view · ↑↓ select · ←→ tree · wheel · J/K diff · m select/copy", muted, w-2)
 	}
-	if focus != nil {
-		footer += "  |  " + u.displayPath(focus.id)
-	}
-	if u.warning != "" {
-		footer = "Warning: " + u.warning
-	}
-	c.text(1, h-2, footer, gray, w-2)
-	c.text(1, h-1, "Tab next view · ↑↓ move · → expand · ← collapse · click/hover select · wheel scroll · a expand all · c collapse · q quit", muted, w-2)
-	return c.ansi()
+	return c
 }

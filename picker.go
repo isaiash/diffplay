@@ -6,11 +6,11 @@ import (
 )
 
 type repositoryPicker struct {
-	paths                        []string
-	checked                      []bool
-	focus, offset, width, height int
-	pending                      []byte
-	done, cancelled              bool
+	paths                 []string
+	checked               []bool
+	focus, offset, height int
+	pending               []byte
+	done, cancelled       bool
 }
 
 func newRepositoryPicker(paths []string) *repositoryPicker {
@@ -127,7 +127,7 @@ func (p *repositoryPicker) input(data []byte) {
 func (p *repositoryPicker) render(w, h int) string {
 	w = max(1, w)
 	h = max(1, h)
-	p.width = w
+
 	p.height = h
 	c := newCanvas(w, h)
 	c.text(1, 0, "Diffplay  SELECT REPOSITORIES", white, w-2)
@@ -159,7 +159,7 @@ func (p *repositoryPicker) render(w, h int) string {
 		if i == p.focus {
 			c.put(0, y, '›', white)
 			for x := 0; x < w; x++ {
-				c.cells[y*w+x].bg = rgb{38, 40, 49}
+				c.cells[y*w+x].bg = selectedBackground
 			}
 		}
 	}

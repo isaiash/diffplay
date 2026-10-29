@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math/bits"
 	"testing"
 )
 
@@ -14,19 +15,13 @@ func TestRenderedDisksGrowWithRadius(t *testing.T) {
 		u.drawFileDisk(c, n, radius)
 		count := 0
 		for _, cell := range c.cells {
-			upper, lower := solidCellColors(cell)
-			if upper != background {
-				count++
-			}
-			if lower != background {
-				count++
-			}
+			count += bits.OnesCount8(cell.dots)
 		}
 		return count
 	}
 	small, large := renderedArea(.5), renderedArea(3)
 	if large <= small*4 {
-		t.Fatalf("larger line counts must produce visibly larger disks: %d vs %d", large, small)
+		t.Fatalf("larger raster radius must produce visibly larger disks: %d vs %d", large, small)
 	}
 }
 

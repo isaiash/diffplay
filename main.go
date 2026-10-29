@@ -30,8 +30,16 @@ func main() {
 	}
 }
 func applySnapshot(g *graph, s watch.Snapshot, events []changeEvent, now time.Time) {
-	// The full snapshot is only a monitoring baseline, not the graph's node set.
-	// Keep changed paths and the minimum directory context needed to group them.
+	// Scanned files provide quiet graph-only context. Missing snapshot paths are
+	// not deletions: only real events and ignore visibility retire existing nodes.
+	// In a workspace each snapshot belongs to just one repository.
+	for id, entry := range s {
+		if id != "." {
+			g.upsert(id, path.Dir(id), entry.IsDir)
+			n := g.nodes[id]
+			n.lines, n.linesKnown = entry.Lines, entry.LinesKnown
+		}
+	}
 	for _, e := range events {
 		if e.Path == "." {
 			continue
@@ -63,9 +71,9 @@ func run(args []string, out io.Writer) error {
 	interval := flags.Duration("interval", 400*time.Millisecond, "filesystem polling interval (minimum 50ms)")
 	snapshot := flags.Bool("snapshot", false, "print a JSON file listing and exit; no terminal required")
 	showVersion := flags.Bool("version", false, "print version and exit")
-	view := flags.String("view", "list", "initial view: graph or list (Tab switches views)")
+	view := flags.String("view", "combined", "initial view: combined, list or graph (Tab cycles views)")
 	flags.Usage = func() {
-		fmt.Fprintln(out, "Diffplay\n\nUsage: diffplay [options] [directory]\n\nLive repository activity inside your terminal: graph and sorted change tree.\nDefaults to the current directory; Git-ignored paths are excluded; depth <= 5.\nOutside Git, inspect only the selected directory and its immediate children; never recurse.\nHidden and reserved system/dependency children are skipped.\nStartup Git changes are loaded quietly; only subsequent live changes flash.\n\nTab: cycle clusters / list / spiral / hex. List: arrows navigate, right expands, left collapses,\nclick toggles folders, hover selects, wheel scrolls, a/c expands/collapses all.\nGraph: hover diff, drag nodes, wheel/+/- zoom, n/p selects nodes.\nq: quit. Counts start from Git status/diff, then accumulate observed live edits.\n\nOptions:")
+		fmt.Fprintln(out, "Diffplay\n\nUsage: diffplay [options] [directory]\n\nLive repository activity inside your terminal: Hex lattice and sorted change tree.\nDefaults to the current directory; Git-ignored paths are excluded; depth <= 5.\nOutside Git, inspect only the selected directory and its immediate children; never recurse.\nHidden and reserved system/dependency children are skipped.\nStartup Git changes are loaded quietly; only subsequent live changes flash.\n\nTab: cycle combined → list → Hex graph. Combined: change list + diff above, Hex below; drag the divider to resize.\nMouse focuses each pane; keyboard starts in list; J/K scroll diff; n/p select files.\nList: arrows navigate, right expands, left collapses,\nclick toggles folders, hover selects, wheel scrolls, a/c expands/collapses all.\nGraph: dotted cells with majority body/minority nucleus; faint gray unchanged files.\nHover diff, drag to pan, wheel zoom at pointer, +/- zoom, r resets, n/p selects files.\nq: quit. Counts start from Git status/diff, then accumulate observed live edits.\n\nOptions:")
 		flags.PrintDefaults()
 	}
 	if err := flags.Parse(args); err != nil {
@@ -81,8 +89,8 @@ func run(args []string, out io.Writer) error {
 	if *interval < 50*time.Millisecond {
 		return errors.New("--interval must be at least 50ms")
 	}
-	if *view != "graph" && *view != "list" {
-		return errors.New("--view must be graph or list")
+	if *view != "graph" && *view != "list" && *view != "combined" {
+		return errors.New("--view must be combined, list or graph")
 	}
 	if flags.NArg() > 1 {
 		return errors.New("expected at most one directory")
@@ -171,9 +179,10 @@ func run(args []string, out io.Writer) error {
 	u := newUI(g, root)
 	seedSessions(u, sessions)
 	u.listMode = *view == "list"
+	u.combined = *view == "combined"
 	failures := make(map[string]error)
 	for _, s := range sessions {
-		failures[s.root] = s.scanErr
+		failures[s.root] = errors.Join(s.scanErr, s.activityErr)
 	}
 	u.warning = sessionWarnings(sessions, failures)
 	type repositoryUpdate struct {
@@ -185,7 +194,7 @@ func run(args []string, out io.Writer) error {
 	defer close(done)
 	for _, s := range sessions {
 		go func(s repositorySession) {
-			watcher := newMonitor(s.root, s.source, s.initial, s.events, s.scanErr == nil)
+			watcher := s.newMonitor()
 			ticker := time.NewTicker(*interval)
 			defer ticker.Stop()
 			for {
@@ -242,19 +251,9 @@ func run(args []string, out io.Writer) error {
 			}
 		case result := <-updates:
 			up := result.update
-			failures[result.root] = up.err
+			failures[result.root] = errors.Join(up.err, up.warning)
 			u.warning = sessionWarnings(sessions, failures)
-			if up.err != nil {
-				continue
-			} else {
-				if up.baseline {
-					u.seedEvents(up.events)
-				} else {
-					applySnapshot(g, up.snapshot, up.events, time.Now())
-					u.recordEvents(up.events)
-				}
-				u.applyVisibility(up.visible)
-			}
+			u.applyScanUpdate(up)
 		case now := <-frames.C:
 			w, h, err := term.GetSize(int(os.Stdout.Fd()))
 			if err != nil {
@@ -263,12 +262,7 @@ func run(args []string, out io.Writer) error {
 			if w < 1 || h < 1 {
 				continue
 			}
-			u.updateGraphMetrics()
-			if !u.paused && !u.listMode && u.graphMode == 0 {
-				g.step(w, max(1, h-4), 0.05)
-			} else if w != g.width || max(1, h-4) != g.height {
-				g.step(w, max(1, h-4), 0)
-			}
+
 			if _, err := io.WriteString(out, u.render(w, h, now)); err != nil {
 				return err
 			}

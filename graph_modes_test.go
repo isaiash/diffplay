@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"math/bits"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +23,7 @@ func TestIdlePollDoesNotRemoveOrRepackDeletedFiles(t *testing.T) {
 	}
 }
 
-func TestClusterAlgorithmsHaveDistinctStableNonoverlappingPositions(t *testing.T) {
+func TestHexHasStableNonoverlappingPositions(t *testing.T) {
 	u := newUI(newGraph(), "/repo")
 	at := time.Unix(100, 0)
 	for i := 0; i < 36; i++ {
@@ -33,51 +34,47 @@ func TestClusterAlgorithmsHaveDistinctStableNonoverlappingPositions(t *testing.T
 	}
 	u.updateGraphMetrics()
 	u.graph.step(180, 56, 0)
-	var previous string
-	for mode := 0; mode < 3; mode++ {
-		u.graphMode = mode
+	for pass := 0; pass < 3; pass++ {
 		frame := u.render(180, 60, at.Add(time.Minute))
-		var positions strings.Builder
 		nodes := u.fileNodes()
 		for i, n := range nodes {
-			fmt.Fprintf(&positions, "%.5f,%.5f;", n.x, n.y)
 			for _, other := range nodes[:i] {
 				if math.Hypot(n.x-other.x, 2*(n.y-other.y))+1e-8 < u.displayRadius(n)+u.displayRadius(other) {
-					t.Fatalf("mode %d overlapping files %s / %s", mode, n.id, other.id)
+					t.Fatalf("overlapping files %s / %s", n.id, other.id)
 				}
 			}
 		}
-		if mode > 0 && positions.String() == previous {
-			t.Fatalf("mode %d still uses previous packing algorithm", mode)
-		}
-		previous = positions.String()
 		if frame != u.render(180, 60, at.Add(time.Hour)) {
-			t.Fatalf("mode %d moves at rest", mode)
+			t.Fatal("Hex moves at rest")
 		}
 		n := nodes[0]
 		x, y := u.screen(n)
 		if u.hit(int(math.Round(x)), int(math.Round(y))) != n.id {
-			t.Fatalf("mode %d cannot hover file", mode)
+			t.Fatal("cannot hover Hex file")
 		}
 	}
 }
 
-func TestClusterSymbolsAreDistinctAndPreserveBothEditDirections(t *testing.T) {
+func TestHexSymbolsPreserveBothEditDirections(t *testing.T) {
 	u := newUI(newGraph(), "/repo")
 	u.width, u.height = 80, 30
 	n := &node{id: "a", x: 35, y: 12, radius: 3, added: 8, removed: 3, kind: "modified"}
-	frames := make(map[string]bool)
-	for mode := 0; mode < 3; mode++ {
-		u.graphMode = mode
+	for _, fresh := range []bool{false, true} {
+		n.fresh = fresh
 		c := newCanvas(80, 30)
 		u.drawFileDisk(c, n, 3)
 		frame := c.ansi()
-		if frames[frame] {
-			t.Fatalf("mode %d reuses the previous symbol", mode)
+		addedColor := green.sgr(false)
+		if fresh {
+			addedColor = blue.sgr(false)
 		}
-		frames[frame] = true
-		if !strings.Contains(frame, "38;2;115;211;153") || !strings.Contains(frame, "38;2;244;92;105") {
-			t.Fatalf("mode %d hides one edit direction", mode)
+		if !strings.Contains(frame, addedColor) || !strings.Contains(frame, red.sgr(false)) {
+			t.Fatalf("fresh=%v hides one edit direction", fresh)
+		}
+		for _, cell := range c.cells {
+			if cell.ch != 0 {
+				t.Fatal("Hex symbols must use Braille dots, not solid glyphs")
+			}
 		}
 	}
 }
@@ -88,7 +85,7 @@ func TestHexKeepsSmallChangesVisibleBesideLargeChanges(t *testing.T) {
 	events := []changeEvent{{Path: "src/small", Kind: "modified", Added: 1, StatsKnown: true, At: at}, {Path: "src/large", Kind: "modified", Added: 100000, StatsKnown: true, At: at}}
 	applySnapshot(u.graph, nil, events, at)
 	u.recordEvents(events)
-	u.graphMode = 2
+
 	u.render(120, 36, at.Add(time.Minute))
 	a, b := u.graph.nodes["src/small"], u.graph.nodes["src/large"]
 	if u.displayRadius(a) != u.displayRadius(b) {
@@ -97,31 +94,44 @@ func TestHexKeepsSmallChangesVisibleBesideLargeChanges(t *testing.T) {
 	if u.graphDotUnits[a.id] != 1 || u.graphDotUnits[b.id] <= 1 {
 		t.Fatal("dot scaling must distinguish single-line and large edits")
 	}
+	density := func(n *node) int {
+		c := newCanvas(120, 36)
+		u.drawFileDisk(c, n, u.displayRadius(n))
+		count := 0
+		for _, cell := range c.cells {
+			count += bits.OnesCount8(cell.dots)
+		}
+		return count
+	}
+	if small, large := density(a), density(b); small != 1 || large <= small {
+		t.Fatalf("equal-capacity cells must retain sparse versus dense edits: %d vs %d dots", small, large)
+	}
 }
 
-func TestAlternativeClusterPauseKeepsPositions(t *testing.T) {
-	for mode := 1; mode < 3; mode++ {
-		u := newUI(newGraph(), "/repo")
-		u.graph.upsert("a", ".", false)
-		u.graphMode = mode
-		u.render(100, 30, time.Unix(100, 0))
-		u.paused = true
-		n := u.graph.nodes["a"]
-		n.x += 1
-		want := n.x
-		u.render(100, 30, time.Unix(200, 0))
-		if n.x != want {
-			t.Fatalf("mode %d ignores layout pause", mode)
-		}
+func TestHexPauseKeepsPositions(t *testing.T) {
+	u := newUI(newGraph(), "/repo")
+	u.graph.upsert("a", ".", false)
+
+	u.render(100, 30, time.Unix(100, 0))
+	u.paused = true
+	n := u.graph.nodes["a"]
+	n.x += 1
+	want := n.x
+	u.render(100, 30, time.Unix(200, 0))
+	if n.x != want {
+		t.Fatal("Hex ignores layout pause")
 	}
 }
 
 func TestTabVisitsEveryVisualization(t *testing.T) {
 	u := newUI(newGraph(), "/repo")
-	for _, title := range []string{"CLUSTERS", "CHANGES", "SPIRAL", "HEX", "CLUSTERS"} {
+	for _, mode := range []string{"graph", "combined", "list", "graph", "combined"} {
 		frame := plainList(u.render(120, 30, time.Unix(100, 0)))
-		if !strings.Contains(frame, "Diffplay  "+title) {
-			t.Fatalf("expected %s, got %s", title, frame)
+		if strings.Contains(frame, "% new lines") != (mode != "graph") {
+			t.Fatalf("wrong content for %s", mode)
+		}
+		if strings.Contains(frame, "Diffplay  ") {
+			t.Fatal("obsolete top bar")
 		}
 		u.input([]byte("\t"))
 	}

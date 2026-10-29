@@ -5,6 +5,8 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/isaiash/diffplay/internal/watch"
 )
 
 // Startup Git data establishes counts but must never look like fresh live edits.
@@ -18,6 +20,7 @@ func (u *ui) seedEvents(events []changeEvent) {
 	}
 }
 func namespaceUpdate(prefix string, up scanUpdate) scanUpdate {
+	up.totalKey = prefix
 	if prefix == "" {
 		return up
 	}
@@ -35,7 +38,29 @@ func namespaceUpdate(prefix string, up scanUpdate) scanUpdate {
 			visible[path.Join(prefix, id)] = v
 		}
 	}
-	return scanUpdate{events: events, visible: visible, err: up.err, baseline: up.baseline}
+	var snapshot watch.Snapshot
+	if up.snapshot != nil {
+		snapshot = make(watch.Snapshot, len(up.snapshot))
+		for id, entry := range up.snapshot {
+			entry.Path = path.Join(prefix, id)
+			snapshot[entry.Path] = entry
+		}
+	}
+	modifications := make(map[string]int, len(up.modifications))
+	for id, n := range up.modifications {
+		if id != "." {
+			modifications[path.Join(prefix, id)] = n
+		}
+	}
+	previews := make(map[string]string, len(up.previews))
+	for id, diff := range up.previews {
+		if id != "." {
+			previews[path.Join(prefix, id)] = diff
+		}
+	}
+	up.modifications, up.previews = modifications, previews
+	up.snapshot, up.events, up.visible = snapshot, events, visible
+	return up
 }
 func (u *ui) displayPath(id string) string {
 	group, rest, found := strings.Cut(id, "/")

@@ -8,9 +8,19 @@ import (
 	"time"
 )
 
-// Circle area follows total edited lines, normalized independently per repository.
+const graphRippleDuration = 900 * time.Millisecond
+const graphFlashDuration = 250 * time.Millisecond
+
+// Changed files retain equal capacity. Context disk area follows current lines,
+// normalized per repository, with minimum honest markers for empty/unknown files.
 func (u *ui) updateGraphMetrics() {
 	maximum := make(map[string]int)
+	for _, n := range u.fileNodes() {
+		if n.kind == "" && n.linesKnown && u.history.entries[n.id] == nil {
+			group := u.histogramGroup(n.id)
+			maximum[group] = max(maximum[group], n.lines)
+		}
+	}
 	for _, n := range u.graph.list() {
 		if n.dir {
 			continue
@@ -21,18 +31,15 @@ func (u *ui) updateGraphMetrics() {
 			n.fresh = r.fresh
 			n.unknown = r.unknown
 		}
-		group := u.histogramGroup(n.id)
-		maximum[group] = max(maximum[group], n.added+n.removed)
-	}
-	for _, n := range u.graph.list() {
-		if n.dir {
-			continue
-		}
-		total := n.added + n.removed
-		peak := maximum[u.histogramGroup(n.id)]
-		n.radius = 0.5
-		if total > 0 && peak > 0 {
-			n.radius = math.Sqrt(0.25 + 8.75*float64(total)/float64(peak))
+		n.radius = 3
+		if n.kind == "" && n.added+n.removed == 0 && !n.unknown {
+			n.radius = .6
+			if n.linesKnown {
+				n.radius = .5
+				if peak := maximum[u.histogramGroup(n.id)]; peak > 0 && n.lines > 0 {
+					n.radius = max(.5, 3*math.Sqrt(float64(n.lines)/float64(peak)))
+				}
+			}
 		}
 	}
 }
@@ -41,40 +48,29 @@ func graphFileColor(n *node) rgb {
 	return outer
 }
 func (u *ui) fileNodes() []*node {
-	var nodes []*node
-	for _, n := range u.graph.list() {
-		if !n.dir {
-			nodes = append(nodes, n)
-		}
-	}
-	return nodes
+	return u.graph.visibleFiles()
 }
 func (u *ui) drawFileDisk(c *canvas, n *node, radius float64) {
-	if u.graphMode == 0 {
-		u.drawSolidBubble(c, n, radius)
-	} else {
-		u.drawClusterSymbol(c, n, radius)
-	}
+	u.drawClusterSymbol(c, n, radius)
 }
 func (u *ui) renderGraph(w, h int, now time.Time) string {
+	return u.renderGraphCanvas(w, h, now).ansi()
+}
+func (u *ui) renderGraphCanvas(w, h int, now time.Time) *canvas {
+	u.width, u.height = w, h
 	u.updateGraphMetrics()
-	if u.graphMode == 2 {
-		for _, n := range u.fileNodes() {
-			n.radius = 3
-		}
-	}
-	modeChanged := u.graph.layoutMode != u.graphMode
-	u.graph.layoutMode = u.graphMode
-	if modeChanged {
-		u.graphDrags = nil
-	}
-	if modeChanged || (u.graphMode != 0 && (!u.paused || w != u.graph.width || max(1, h-4) != u.graph.height)) {
-		u.graph.step(w, max(1, h-4), 0)
-	}
-	c := newCanvas(w, h)
+	contentHeight := u.graphContentHeight()
+	u.graphRendering = true
+	defer func() { u.graphRendering = false }()
 
-	clusters := u.graph.clusters(w, max(1, h-4))
-	u.applyGraphDrags(clusters)
+	layout := u.graph.packedHierarchy(w, contentHeight)
+	if !u.paused || w != u.graph.width || contentHeight != u.graph.height {
+		u.graph.applyLayout(layout, w, contentHeight)
+	}
+	c := newCanvas(w, contentHeight+4)
+
+	clusters := layout.clusters
+
 	u.graphRadii = make(map[string]float64)
 	u.graphDotUnits = make(map[string]int)
 	for _, cluster := range clusters {
@@ -90,74 +86,83 @@ func (u *ui) renderGraph(w, h int, now time.Time) string {
 			continue
 		}
 		age := now.Sub(n.changed)
-		if age < 0 || age >= burstDuration {
+		if age < 0 || age >= graphRippleDuration {
 			continue
 		}
-		t := float64(age) / float64(burstDuration)
+		t := float64(age) / float64(graphRippleDuration)
 		x, y := u.screen(n)
-		radius := (u.displayRadius(n) + t*7) * u.zoom
+		radius := (u.displayRadius(n) + t*10) * u.zoom
 		color := blend(graphFileColor(n), background, t)
 		for angle := 0.0; angle < math.Pi*2; angle += .1 {
 			xx, yy := x+math.Cos(angle)*radius, y+math.Sin(angle)*radius/2
-			if yy >= 2 && yy < float64(h-2) {
+			if yy >= 2 && yy < float64(contentHeight+2) {
 				c.dot(int(xx*2), int(yy*4), color)
 			}
 		}
 	}
+	var flashLayer *canvas
 	for _, n := range nodes {
-		u.drawFileDisk(c, n, u.displayRadius(n))
+		age := now.Sub(n.changed)
+		if !n.quiet && !n.changed.IsZero() && age >= 0 && age < graphFlashDuration {
+			// Isolate the file's dots so the flash never recolors the ripple
+			// or a neighboring file; startup data is explicitly quiet.
+			if flashLayer == nil {
+				flashLayer = newCanvas(c.w, c.h)
+			}
+			u.drawFileDisk(flashLayer, n, u.displayRadius(n))
+			strength := 1 - float64(age)/float64(graphFlashDuration)
+			x, y := u.screen(n)
+			radius := math.Max(.1, u.displayRadius(n)*u.zoom)
+			for yy := max(0, int(math.Floor(y+.5-radius/2))-1); yy < min(c.h, int(math.Ceil(y+.5+radius/2))+2); yy++ {
+				for xx := max(0, int(math.Floor(x+.5-radius))-1); xx < min(c.w, int(math.Ceil(x+.5+radius))+2); xx++ {
+					i := yy*c.w + xx
+					v := flashLayer.cells[i]
+					if v.dots != 0 {
+						color := blend(v.color, white, strength)
+
+						c.cells[i].dots |= v.dots
+						c.cells[i].color = color
+						flashLayer.cells[i] = cell{}
+					}
+				}
+			}
+		} else {
+			u.drawFileDisk(c, n, u.displayRadius(n))
+		}
 	}
-	// Folders are headings for their file clusters, never graph nodes.
-	envelopes := u.graph.folderEnvelopes(w, max(1, h-4))
+
+	// Nested folder frames express containment without relationship edges.
+	envelopes := layout.envelopes
 	for _, envelope := range envelopes {
-		if envelope.ID == "." && len(envelopes) > 1 {
+		if envelope.ID == "." {
 			continue
 		}
-		title := u.displayPath(envelope.ID)
-		title += "/"
-		left := envelope.CenterX - envelope.Radius
-		top := envelope.CenterY - envelope.Radius/2
-		cx := float64(w) / 2
-		cy := float64(max(1, h-4)) / 2
-		x := int(math.Round((left-cx)*u.zoom + cx))
-		y := int(math.Round((top-cy)*u.zoom+cy)) + 2
-		if y >= 2 && y < h-2 {
-			c.text(x+1, y, title, gray, max(0, min(w-x-2, int(2*envelope.Radius*u.zoom)-2)))
+		u.drawFolderFrame(c, envelope)
+	}
+	// Existing rasterizers clip two virtual rows at each edge. Crop those
+	// rows to expose the entire graph viewport without parsing ANSI.
+	output := newCanvas(w, h)
+	copy(output.cells, c.cells[2*w:(2+min(contentHeight, h))*w])
+	c = output
+	u.graphRendering = false
+	if len(nodes) == 0 && h > 4 {
+		c.text(2, 2, "No files to display.", gray, w-4)
+	}
+	if !u.combined {
+		for x := 0; x < w; x++ {
+			c.put(x, h-1, ' ', muted)
 		}
-	}
-	for _, y := range []int{0, 1, h - 2, h - 1} {
-		if y >= 0 && y < h {
-			for x := 0; x < w; x++ {
-				c.put(x, y, ' ', muted)
-			}
+		state := "LIVE"
+		if u.paused {
+			state = "PAUSED"
 		}
-	}
-	c.text(1, 0, "Diffplay  "+clusterTitles[u.graphMode], white, w-2)
-	c.text(24, 0, u.root, gray, w-25)
-	deleted := 0
-	for _, n := range nodes {
-		if n.kind == "deleted" {
-			deleted++
+		help := fmt.Sprintf("%s %d files · q quit · Tab view · drag pan · wheel · j/k diff · m copy", state, len(nodes))
+		if u.warning != "" {
+			help += " · Warning: " + u.warning
 		}
+		c.text(1, h-1, help, muted, w-2)
 	}
-	state := "LIVE"
-	if u.paused {
-		state = "LAYOUT PAUSED"
-	}
-	folders := len(envelopes)
-	if folders > 1 {
-		folders--
-	} // The implicit root envelope is not displayed.
-	c.text(1, 1, fmt.Sprintf("%s  %d files · %d folders · %d deleted  |  cumulative edits · hover exact counts", state, len(nodes), folders, deleted), muted, w-2)
-	if len(nodes) == 0 && h > 7 {
-		c.text(2, 4, "No changed files.", gray, w-4)
-	}
-	c.text(1, h-2, clusterLegends[u.graphMode], gray, w-2)
-	c.text(1, h-1, "Tab next view · hover name/diff · drag file · wheel/+/- zoom · n/p select · j/k diff · space freeze · q quit", muted, w-2)
-	if u.warning != "" {
-		c.text(1, h-2, "Warning: "+u.warning, red, w-2)
-	}
-	if n := u.graph.nodes[u.selected]; n != nil && !n.dir && w >= 24 && h >= 10 {
+	if n := u.graph.nodes[u.selected]; !u.combined && n != nil && !n.dir && w >= 24 && h >= 10 {
 		pw := min(76, max(24, w/2))
 		ph := min(h-4, 18)
 		px, py := w-pw, 2
@@ -167,9 +172,19 @@ func (u *ui) renderGraph(w, h int, now time.Time) string {
 			}
 		}
 		c.text(px+1, py, u.displayPath(n.id), white, pw-2)
-		c.text(px+1, py+1, n.kind+"  "+signedCount("+", n.added, n.unknown)+" "+signedCount("-", n.removed, n.unknown), muted, pw-2)
-		if unit := u.graphDotUnits[n.id]; u.graphMode == 2 && unit > 0 {
+		kind := n.kind
+		if kind == "" {
+			kind = "unchanged"
+		}
+		c.text(px+1, py+1, kind+"  "+signedCount("+", n.added, n.unknown)+" "+signedCount("-", n.removed, n.unknown), muted, pw-2)
+		if unit := u.graphDotUnits[n.id]; unit > 0 {
 			c.text(px+1, py+2, fmt.Sprintf("1 dot ≤ %d cumulative lines · rounded up", unit), gray, pw-2)
+		} else if kind == "unchanged" {
+			label := "File line count unavailable"
+			if n.linesKnown {
+				label = fmt.Sprintf("%d file lines · gray area: file size", n.lines)
+			}
+			c.text(px+1, py+2, label, gray, pw-2)
 		}
 		lines := strings.Split(n.diff, "\n")
 		if n.diff == "" {
@@ -188,9 +203,9 @@ func (u *ui) renderGraph(w, h int, now time.Time) string {
 			} else if strings.HasPrefix(line, "-") {
 				color = red
 			}
-			c.text(px+1, py+3+i, line, color, pw-2)
+			c.text(px+1, py+3+i, diffText(line), color, pw-2)
 		}
-		c.text(px+1, py+ph-1, fmt.Sprintf("j/k scroll · %d/%d", u.scroll+1, len(lines)), muted, pw-2)
+		c.text(px+1, py+ph-1, fmt.Sprintf("%d/%d", u.scroll+1, len(lines)), muted, pw-2)
 	}
-	return c.ansi()
+	return c
 }

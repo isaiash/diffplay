@@ -18,12 +18,16 @@ func changedUI() *ui {
 
 func TestTabSwitchesBetweenGraphAndChangeList(t *testing.T) {
 	u := changedUI()
-	u.input([]byte("\t"))
+	u.input([]byte("	"))
+	if !u.combined {
+		t.Fatal("Tab from graph must open combined view")
+	}
+	u.input([]byte("	"))
 	if !u.listMode {
 		t.Fatal("Tab must open changes view")
 	}
 	frame := u.render(100, 25, time.Now())
-	for _, want := range []string{"CHANGES", "+14", "-9", "src", "small.go", "new.md", "deleted.go"} {
+	for _, want := range []string{"repo ", "+14", "-9", "src", "small.go", "new.md", "deleted.go"} {
 		if !strings.Contains(frame, want) {
 			t.Errorf("missing %q", want)
 		}
@@ -67,16 +71,16 @@ func TestTreeKeyboardMouseAndStableSelection(t *testing.T) {
 	if u.listSelected != "docs" {
 		t.Fatal("live sorting must not move focus to a different path")
 	}
-	// The newly highest-ranked src directory is the first visible row (row 3).
-	u.input([]byte("\x1b[<35;20;3M"))
+	// The newly highest-ranked src directory is the first visible row (row 2).
+	u.input([]byte("\x1b[<35;20;2M"))
 	if u.listSelected != "src" {
 		t.Fatalf("hover must select row, got %q", u.listSelected)
 	}
-	u.input([]byte("\x1b[<0;20;3M"))
+	u.input([]byte("\x1b[<0;20;2M"))
 	if u.open["src"] {
 		t.Fatal("mouse click must collapse folder")
 	}
-	u.input([]byte("\x1b[<0;20;3M"))
+	u.input([]byte("\x1b[<0;20;2M"))
 	if !u.open["src"] {
 		t.Fatal("mouse click must reopen folder")
 	}
@@ -150,7 +154,7 @@ func TestListCountColorsAndChangeFlashFade(t *testing.T) {
 	u.input([]byte("\t"))
 	now := time.Now()
 	recent := u.render(100, 25, now)
-	for _, color := range []string{"38;2;115;211;153", "38;2;139;202;255", "38;2;244;92;105"} {
+	for _, color := range []string{green.sgr(false), blue.sgr(false), red.sgr(false)} {
 		if !strings.Contains(recent, color) {
 			t.Errorf("missing count color %s", color)
 		}

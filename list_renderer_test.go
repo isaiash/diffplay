@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -33,7 +32,7 @@ func TestListHistogramShrinksWithTerminalAndPreservesPreview(t *testing.T) {
 	for _, width := range []int{20, 30, 40, 60, 100, 120, 180} {
 		frame := plainList(u.renderList(width, 24, now))
 		lines := strings.Split(frame, "\r\n")
-		row := lines[2]
+		row := lines[1]
 		if !strings.Contains(row, "│") || !strings.Contains(row, "x") {
 			t.Errorf("width %d lost histogram or path: %q", width, row)
 		}
@@ -54,7 +53,7 @@ func TestListDivergingHistogram(t *testing.T) {
 	u.recordChange("folder/big", "modified", false, "", 16, 8, true, now)
 	u.recordChange("small", "created", false, "", 1, 1, true, now)
 	lines := strings.Split(plainList(u.renderList(100, 24, now)), "\r\n")
-	folder, big, small := []rune(lines[2]), []rune(lines[3]), []rune(lines[4])
+	folder, big, small := []rune(lines[1]), []rune(lines[2]), []rune(lines[3])
 	center := -1
 	for i, r := range big {
 		if r == '│' {
@@ -76,27 +75,28 @@ func TestListDivergingHistogram(t *testing.T) {
 	}
 	u.listKey("c")
 	lines = strings.Split(plainList(u.renderList(100, 24, now)), "\r\n")
-	if !strings.Contains(lines[2], "█│█") {
+	if !strings.Contains(lines[1], "█│█") {
 		t.Fatalf("collapsed folder must show aggregate: %q", lines[3])
 	}
 }
 
-func backgroundBeforeName(t *testing.T, frame, name string) rgb {
+func cellBeforeName(t *testing.T, c *canvas, name string) cell {
 	t.Helper()
-	index := strings.Index(frame, name)
-	if index < 0 {
-		t.Fatalf("missing filename %q", name)
+	letters := []rune(name)
+	for i := 0; i+len(letters) <= len(c.cells); i++ {
+		found := true
+		for j, r := range letters {
+			if c.cells[i+j].ch != r {
+				found = false
+				break
+			}
+		}
+		if found {
+			return c.cells[i]
+		}
 	}
-	matches := regexp.MustCompile(`\x1b\[48;2;([0-9]+);([0-9]+);([0-9]+)m`).FindAllStringSubmatch(frame[:index], -1)
-	if len(matches) == 0 {
-		t.Fatal("missing background")
-	}
-	last := matches[len(matches)-1]
-	var color rgb
-	fmt.Sscan(last[1], &color.r)
-	fmt.Sscan(last[2], &color.g)
-	fmt.Sscan(last[3], &color.b)
-	return color
+	t.Fatalf("missing filename %q", name)
+	return cell{}
 }
 
 func TestListFlashUsesBrightEventTintEvenWhenSelected(t *testing.T) {
@@ -110,20 +110,20 @@ func TestListFlashUsesBrightEventTintEvenWhenSelected(t *testing.T) {
 			u.recordChange("target", "created", false, "", 1, 0, true, now.Add(-time.Second))
 			u.recordChange("target", tc.kind, false, "", 1, 1, true, now)
 			want := blend(tc.color, white, 0.45)
-			frame := u.renderList(100, 24, now)
-			if got := backgroundBeforeName(t, frame, "target"); got != want {
-				t.Fatalf("selected flash = %+v, want pastel %+v", got, want)
+			frame := u.renderListCanvas(100, 24, now)
+			if got := cellBeforeName(t, frame, "target").bg; got != want {
+				t.Fatalf("selected flash = %+v, want theme tint %+v", got, want)
 			}
-			middle := backgroundBeforeName(t, u.renderList(100, 24, now.Add(burstDuration/2)), "target")
-			stale := backgroundBeforeName(t, u.renderList(100, 24, now.Add(burstDuration)), "target")
-			if middle.r >= want.r || middle.g >= want.g || middle.b >= want.b || middle.r <= stale.r || middle.g <= stale.g || middle.b <= stale.b {
-				t.Fatalf("flash did not interpolate: %+v %+v %+v", want, middle, stale)
+			middle := cellBeforeName(t, u.renderListCanvas(100, 24, now.Add(burstDuration/2)), "target").bg
+			stale := cellBeforeName(t, u.renderListCanvas(100, 24, now.Add(burstDuration)), "target").bg
+			if middle != want || stale != selectedBackground {
+				t.Fatalf("flash did not return to theme selection: %+v %+v %+v", want, middle, stale)
 			}
 		})
 	}
 	u := newUI(newGraph(), "/repo")
 	u.recordChange("folder/target", "deleted", false, "", 0, 2, true, now)
-	if got := backgroundBeforeName(t, u.renderList(100, 24, now), "folder/"); got != blend(red, white, 0.45) {
+	if got := cellBeforeName(t, u.renderListCanvas(100, 24, now), "folder/").bg; got != blend(red, white, 0.45) {
 		t.Fatalf("ancestor must use descendant event: %+v", got)
 	}
 }
@@ -133,17 +133,20 @@ func TestListFlashKeepsFilenameReadable(t *testing.T) {
 	for _, kind := range []string{"created", "modified", "deleted"} {
 		u := newUI(newGraph(), "/repo")
 		u.recordChange("target", kind, false, "", 1, 1, true, now)
-		frame := u.renderList(100, 24, now)
-		prefix := frame[:strings.Index(frame, "target")]
-		matches := regexp.MustCompile(`\x1b\[38;2;([0-9]+);([0-9]+);([0-9]+)m`).FindAllStringSubmatch(prefix, -1)
-		last := matches[len(matches)-1]
-		var color rgb
-		fmt.Sscan(last[1], &color.r)
-		fmt.Sscan(last[2], &color.g)
-		fmt.Sscan(last[3], &color.b)
-		if color.r > 80 || color.g > 80 || color.b > 80 {
-			t.Errorf("%s name must use dark ink on bright pastel: %+v", kind, color)
+		v := cellBeforeName(t, u.renderListCanvas(100, 24, now), "target")
+		if v.color != background || v.bg == background {
+			t.Errorf("%s name must use theme background ink on bright theme tint: %+v", kind, v)
 		}
+	}
+}
+
+func TestSelectedFilenameRemainsReadableAfterFlash(t *testing.T) {
+	u := newUI(newGraph(), "/repo")
+	u.recordChange("target", "modified", false, "", 1, 0, true, time.Time{})
+	u.listSelected = "target"
+	v := cellBeforeName(t, u.renderListCanvas(100, 24, time.Now()), "target")
+	if v.color == v.bg {
+		t.Fatal("selection must not use its background palette index as filename ink")
 	}
 }
 
@@ -167,7 +170,7 @@ func TestListOmitsRootAndKeepsFocusVisible(t *testing.T) {
 	}
 	frame := plainList(u.renderList(100, 25, time.Now()))
 	lines := strings.Split(frame, "\r\n")
-	if strings.Contains(lines[2], "├─") || strings.Contains(lines[2], "repo/") {
+	if strings.Contains(lines[1], "├─") || strings.Contains(lines[1], "repo/") {
 		t.Fatalf("extra root trunk: %q", lines[3])
 	}
 }

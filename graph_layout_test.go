@@ -7,6 +7,13 @@ import (
 	"testing"
 )
 
+func TestPackingRadiusHonorsLargeContextFiles(t *testing.T) {
+	n := &node{radius: 6}
+	if got := packingRadius(n); got != 6 {
+		t.Fatalf("large context radius clipped: got %g, want 6", got)
+	}
+}
+
 func TestFileClustersUseExactSortedParentsAndExcludeDirectories(t *testing.T) {
 	g := newGraph()
 	for _, id := range []string{"repo-b/src/z", "repo-a/src/b", "repo-a/src/a"} {
@@ -15,6 +22,7 @@ func TestFileClustersUseExactSortedParentsAndExcludeDirectories(t *testing.T) {
 			parent = "repo-b/src"
 		}
 		g.upsert(id, parent, false)
+		g.nodes[id].kind = "modified"
 	}
 	g.upsert("empty", "repo-a", true)
 	groups := g.clusters(80, 24)
@@ -40,7 +48,8 @@ func TestClusterPackingNeverOverlapsFileDisksAcrossAspectResizes(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		id := fmt.Sprintf("file-%03d", i)
 		g.upsert(id, fmt.Sprintf("repo-%d/src/branch-%d", i%3, i%7), false)
-		g.nodes[id].radius = .5 + float64(i%6)/2
+		g.nodes[id].radius = .5 + float64(i%12)/2
+		g.nodes[id].kind = "modified"
 	}
 	for _, size := range [][2]int{{240, 100}, {35, 12}, {24, 120}, {120, 24}, {4, 2}, {1, 1}, {0, -4}, {180, 60}} {
 		for _, dt := range []float64{0, .05, math.NaN(), math.Inf(1), -.5} {
@@ -48,20 +57,17 @@ func TestClusterPackingNeverOverlapsFileDisksAcrossAspectResizes(t *testing.T) {
 			groups := g.clusters(size[0], size[1])
 			scales := make(map[*node]float64)
 			for _, c := range groups {
-				if math.IsNaN(c.Scale) || math.IsInf(c.Scale, 0) || c.Scale < 0 || c.Scale > 1 {
+				if math.IsNaN(c.Scale) || math.IsInf(c.Scale, 0) || c.Scale < 0 {
 					t.Fatalf("invalid scale: %+v", c)
 				}
 				for _, n := range c.Nodes {
 					scales[n] = c.Scale
-					if !n.initialized || math.IsNaN(n.x) || math.IsNaN(n.y) || math.IsInf(n.x, 0) || math.IsInf(n.y, 0) || n.x < 0 || n.y < 0 || n.x > float64(max(1, size[0])-1) || n.y > float64(max(1, size[1])-1) {
+					if math.IsNaN(n.x) || math.IsNaN(n.y) || math.IsInf(n.x, 0) || math.IsInf(n.y, 0) || n.x < 0 || n.y < 0 || n.x > float64(max(1, size[0])-1) || n.y > float64(max(1, size[1])-1) {
 						t.Fatalf("invalid position at %v: %+v", size, n)
 					}
-					d := math.Hypot(n.x-c.CenterX, 2*(n.y-c.CenterY))
-					if d+(n.radius+.35)*c.Scale > c.Radius+1e-8 {
-						t.Fatalf("file escapes circular direct-file zone at %v: %s", size, n.id)
-					}
-					if 2*(n.y-c.CenterY)-(n.radius+.35)*c.Scale < -c.Radius+2*c.Scale-1e-8 {
-						t.Fatalf("file collides with zone heading: %s", n.id)
+					r := (packingRadius(n) + .35) * c.Scale
+					if n.x-r < c.Left-1e-8 || n.x+r > c.Left+c.Width+1e-8 || n.y-r/2 < c.Top-1e-8 || n.y+r/2 > c.Top+c.Height+1e-8 {
+						t.Fatalf("file escapes rectangular direct-file zone at %v: %s", size, n.id)
 					}
 				}
 			}
@@ -91,11 +97,11 @@ func TestClusterStepZeroTimeIsStationaryAndSanitizesInvalidInputs(t *testing.T) 
 		}
 	}
 	for _, n := range g.list() {
-		n.x, n.y, n.vx, n.vy, n.radius = math.NaN(), math.Inf(1), math.NaN(), math.Inf(-1), math.NaN()
+		n.x, n.y, n.radius = math.NaN(), math.Inf(1), math.NaN()
 	}
 	g.stepClusters(4, 2, 0)
 	for _, n := range g.list() {
-		if math.IsNaN(n.x) || math.IsInf(n.x, 0) || math.IsNaN(n.y) || math.IsInf(n.y, 0) || math.IsNaN(n.vx) || math.IsInf(n.vy, 0) {
+		if math.IsNaN(n.x) || math.IsInf(n.x, 0) || math.IsNaN(n.y) || math.IsInf(n.y, 0) {
 			t.Fatalf("invalid state: %+v", n)
 		}
 	}
@@ -109,8 +115,10 @@ func TestClusterPackingIsIndependentOfInsertionOrderAndContext(t *testing.T) {
 	a, b := newGraph(), newGraph()
 	for i := 0; i < 80; i++ {
 		a.upsert(fmt.Sprintf("f-%03d", i), fmt.Sprintf("repo/src-%d", i%4), false)
+		a.nodes[fmt.Sprintf("f-%03d", i)].kind = "modified"
 		j := 79 - i
 		b.upsert(fmt.Sprintf("f-%03d", j), fmt.Sprintf("repo/src-%d", j%4), false)
+		b.nodes[fmt.Sprintf("f-%03d", j)].kind = "modified"
 	}
 	b.upsert("unrelated/empty/directory", "unrelated/empty", true)
 	a.stepClusters(120, 40, .05)
@@ -134,8 +142,10 @@ func TestClusterPackingIsIndependentOfInsertionOrderAndContext(t *testing.T) {
 func TestClusterPackingRebuildsAfterNewFilesAndParentChanges(t *testing.T) {
 	g := newGraph()
 	g.upsert("arbitrary-id", "repo-a/src", false)
+	g.nodes["arbitrary-id"].kind = "modified"
 	g.stepClusters(100, 40, 0)
 	g.upsert("new-file", "repo-b/src", false)
+	g.nodes["new-file"].kind = "modified"
 	g.upsert("arbitrary-id", "repo-a/src/deep", false)
 	g.stepClusters(100, 40, 0)
 	groups := g.clusters(100, 40)
@@ -155,6 +165,7 @@ func BenchmarkClusterStepDense(b *testing.B) {
 			g := newGraph()
 			for i := 0; i < count; i++ {
 				g.upsert(fmt.Sprintf("file-%06d", i), "root", false)
+				g.nodes[fmt.Sprintf("file-%06d", i)].kind = "modified"
 			}
 			g.list()
 			b.ReportAllocs()

@@ -19,6 +19,8 @@ type changeRow struct {
 	flashKind           string
 	dir, fresh, unknown bool
 	added, removed      int
+	modifications       int
+	previewScroll       int
 	changed             time.Time
 	children            []*changeRow
 	depth               int
@@ -75,11 +77,15 @@ func (h *history) tree() *changeRow {
 	}
 	var aggregate func(*changeRow)
 	aggregate = func(r *changeRow) {
+		if r.dir {
+			r.modifications = 0
+		}
 		allFresh := len(r.children) > 0
 		for _, child := range r.children {
 			aggregate(child)
 			r.added += child.added
 			r.removed += child.removed
+			r.modifications += child.modifications
 			r.unknown = r.unknown || child.unknown
 			allFresh = allFresh && child.fresh
 			if child.changed.After(r.changed) || child.changed.Equal(r.changed) && flashPriority(child.flashKind) > flashPriority(r.flashKind) {

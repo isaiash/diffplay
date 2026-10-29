@@ -17,10 +17,10 @@ func TestCompactListHasNoColumnHeaderRow(t *testing.T) {
 		}
 	}
 	rows := strings.Split(frame, "\r\n")
-	if !strings.Contains(rows[2], "only.txt") {
+	if !strings.Contains(rows[1], "only.txt") {
 		t.Fatal("first file must occupy reclaimed header row")
 	}
-	row := []rune(rows[2])
+	row := []rune(rows[1])
 	center := -1
 	for i, r := range row {
 		if r == '│' {
@@ -43,35 +43,35 @@ func TestCompactListHasNoColumnHeaderRow(t *testing.T) {
 	}
 }
 
-func TestDefaultCLIViewIsList(t *testing.T) {
+func TestDefaultCLIViewIsCombined(t *testing.T) {
 	var out bytes.Buffer
 	if err := run([]string{"--help"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), `(default "list")`) {
-		t.Fatal("default view must be list")
+	if !strings.Contains(out.String(), `(default "combined")`) {
+		t.Fatal("default view must be combined")
 	}
 }
 
-func TestGraphContainsOnlyChangesAndRequiredAncestors(t *testing.T) {
+func TestGraphIncludesScannedContextAlongsideChanges(t *testing.T) {
 	g := newGraph()
 	now := time.Now()
 	s := mapEntries(".", "src", "src/changed.go", "src/untouched.go", "docs", "docs/untouched.md")
 	applySnapshot(g, s, nil, now)
-	if len(g.nodes) != 0 {
-		t.Fatal("initial clean filesystem must not populate graph")
+	if len(g.nodes) != 5 {
+		t.Fatal("clean scanned files and folders must populate graph, excluding root")
 	}
 	applySnapshot(g, s, []changeEvent{{Path: "src/changed.go", Kind: "modified", At: now}}, now)
-	if len(g.nodes) != 2 || g.nodes["src"] == nil || g.nodes["src/changed.go"] == nil {
-		t.Fatalf("expected changed file plus its folder, got %v", g.nodes)
+	if len(g.nodes) != 5 || g.nodes["src/changed.go"].kind != "modified" {
+		t.Fatalf("expected changed file alongside quiet context, got %v", g.nodes)
 	}
 	applySnapshot(g, s, nil, now.Add(time.Second))
-	if len(g.nodes) != 2 {
-		t.Fatal("unchanged polls must not repopulate untouched nodes")
+	if len(g.nodes) != 5 {
+		t.Fatal("unchanged polls must preserve quiet context")
 	}
 	applySnapshot(g, mapEntries("."), []changeEvent{{Path: "src/changed.go", Kind: "deleted", At: now}}, now)
 	g.expire(now.Add(13 * time.Second))
-	if len(g.nodes) != 0 {
-		t.Fatal("expired deletions must not leave orphan context folders")
+	if g.nodes["src/changed.go"] != nil || g.nodes["src/untouched.go"] == nil {
+		t.Fatal("expire only real tombstones, never infer deletions from missing snapshot entries")
 	}
 }

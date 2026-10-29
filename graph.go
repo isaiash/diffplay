@@ -11,16 +11,18 @@ const burstDuration = 4 * time.Second
 const tombstoneDuration = 12 * time.Second
 
 type node struct {
-	id, parent     string
-	dir            bool
-	x, y, vx, vy   float64
-	kind, diff     string
-	changed        time.Time
-	quiet          bool
-	radius         float64
-	initialized    bool
+	id, parent string
+	dir        bool
+	x, y       float64
+	kind, diff string
+	changed    time.Time
+	quiet      bool
+	radius     float64
+
 	added, removed int
 	fresh, unknown bool
+	lines          int
+	linesKnown     bool
 }
 
 type graph struct {
@@ -28,7 +30,6 @@ type graph struct {
 	ordered       []*node
 	width, height int
 	dirty         bool
-	layoutMode    int
 }
 
 func newGraph() *graph { return &graph{nodes: make(map[string]*node), width: 80, height: 24} }
@@ -101,6 +102,3 @@ func (g *graph) pruneContext() {
 	}
 }
 func clamp(v, lo, hi float64) float64 { return math.Max(lo, math.Min(hi, v)) }
-func (g *graph) step(w, h int, dt float64) {
-	g.stepClusters(w, h, dt)
-}

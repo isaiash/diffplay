@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -38,9 +40,7 @@ func TestGraphOnlyFileDisksAndClusterTitles(t *testing.T) {
 	if !strings.Contains(frame, "src/") {
 		t.Fatal("folder must appear as the cluster title")
 	}
-	if strings.Contains(frame, "38;2;51;51;61") {
-		t.Fatal("graph must not draw relationship lines")
-	}
+
 	if strings.Contains(frame, "●") {
 		t.Fatal("directory nodes must not be rendered")
 	}
@@ -48,7 +48,8 @@ func TestGraphOnlyFileDisksAndClusterTitles(t *testing.T) {
 	if strings.Contains(u.render(100, 30, now), "secret-name.go") {
 		t.Fatal("legacy label key must not reveal every filename")
 	}
-	u.input([]byte("\x1b[<35;26;13M"))
+	x, y := u.screen(g.nodes["src/secret-name.go"])
+	u.input([]byte(fmt.Sprintf("\x1b[<35;%d;%dM", int(math.Round(x))+1, int(math.Round(y))+1)))
 	if u.selected != "src/secret-name.go" {
 		t.Fatalf("file hover selected %q", u.selected)
 	}
@@ -57,7 +58,7 @@ func TestGraphOnlyFileDisksAndClusterTitles(t *testing.T) {
 	}
 }
 
-func TestGraphRadiusAndMetricsAreRepositoryLocal(t *testing.T) {
+func TestGraphCapacityIsEqualAndMetricsPreserveRepositoryCounts(t *testing.T) {
 	u := newUI(newGraph(), "/workspace")
 	u.repositoryLabels = map[string]string{"repo-1": "large", "repo-2": "small"}
 	now := time.Now()
@@ -66,10 +67,10 @@ func TestGraphRadiusAndMetricsAreRepositoryLocal(t *testing.T) {
 	u.recordEvents(events)
 	u.updateGraphMetrics()
 	a, b, c := u.graph.nodes["repo-1/a.txt"], u.graph.nodes["repo-1/b.txt"], u.graph.nodes["repo-2/c.txt"]
-	if a.radius <= b.radius || a.radius != c.radius {
-		t.Fatalf("disk sizing must normalize per repository: %v %v %v", a.radius, b.radius, c.radius)
+	if a.radius != b.radius || a.radius != c.radius || a.radius <= 0 {
+		t.Fatalf("Hex capacity must be equal across repositories and counts: %v %v %v", a.radius, b.radius, c.radius)
 	}
-	if a.added != 100 || a.removed != 20 || !b.fresh {
+	if a.added != 100 || a.removed != 20 || b.added != 1 || c.added != 2 || !b.fresh || !c.fresh {
 		t.Fatal("graph metrics must reuse list history")
 	}
 }
@@ -83,13 +84,14 @@ func TestGraphHitUsesDiskExtentAndNeverSelectsFolder(t *testing.T) {
 	g.nodes["src/file"].x = 30
 	g.nodes["src/file"].y = 10
 	g.nodes["src/file"].radius = 3
+	g.nodes["src/file"].kind = "modified"
 	u := newUI(g, "/repo")
 	u.width = 100
 	u.height = 30
 	if u.hit(10, 7) != "" {
 		t.Fatal("folder context must not be selectable as a file")
 	}
-	if u.hit(32, 12) != "src/file" {
+	if u.hit(32, 10) != "src/file" {
 		t.Fatal("hover must include the visible disk extent")
 	}
 }
