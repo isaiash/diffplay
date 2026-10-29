@@ -27,6 +27,53 @@ func TestDiscoverDepthAndSymlinkTraversal(t *testing.T) {
 	}
 }
 
+// macOS temporary paths have a symlinked ancestor (/var -> /private/var).
+// Git reports the physical path, but discovery must retain the caller's path.
+func TestDiscoverWithSymlinkedAncestor(t *testing.T) {
+	for _, linked := range []bool{false, true} {
+		name := "repository"
+		if linked {
+			name = "linked worktree"
+		}
+		t.Run(name, func(t *testing.T) {
+			parent := t.TempDir()
+			physical := filepath.Join(parent, "physical")
+			if err := os.MkdirAll(filepath.Join(physical, "projects"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			alias := filepath.Join(parent, "alias")
+			if err := os.Symlink(physical, alias); err != nil {
+				t.Fatal(err)
+			}
+			alias = filepath.Join(alias, "projects")
+			actual := filepath.Join(physical, "projects", name)
+			if linked {
+				root := repository(t)
+				git(t, root, "commit", "--allow-empty", "-qm", "baseline")
+				git(t, root, "worktree", "add", "--detach", actual)
+			} else {
+				if err := os.Mkdir(actual, 0755); err != nil {
+					t.Fatal(err)
+				}
+				git(t, actual, "init", "-q")
+			}
+			want := filepath.Join(alias, name)
+			for _, tc := range []struct {
+				root  string
+				depth int
+			}{
+				{want, 0},
+				{filepath.Join(alias, "."), 1},
+			} {
+				got, err := Discover(tc.root, tc.depth)
+				if err != nil || !reflect.DeepEqual(got, []string{want}) {
+					t.Fatalf("Discover(%q, %d) = %q, %v; want %q", tc.root, tc.depth, got, err, []string{want})
+				}
+			}
+		})
+	}
+}
+
 func TestDiscoverLinkedWorktreeMarker(t *testing.T) {
 	root := repository(t)
 	put(t, root, "file", "base\n")

@@ -59,8 +59,18 @@ func Discover(root string, maxDepth int) ([]string, error) {
 					top, err := r.command("rev-parse", "--show-toplevel")
 					if err != nil && !inaccessibleChild(err) {
 						failures = append(failures, err)
-					} else if err == nil && filepath.Clean(strings.TrimSuffix(string(top), "\n")) == filepath.Clean(dir) {
-						paths = append(paths, dir)
+					} else if err == nil {
+						// Git resolves symlinked ancestors (e.g. /var on macOS).
+						// Compare directory identity while retaining the caller's path.
+						topInfo, topErr := os.Stat(strings.TrimSuffix(string(top), "\n"))
+						dirInfo, dirErr := os.Stat(dir)
+						if err := errors.Join(topErr, dirErr); err != nil {
+							if !inaccessibleChild(err) {
+								failures = append(failures, err)
+							}
+						} else if os.SameFile(topInfo, dirInfo) {
+							paths = append(paths, dir)
+						}
 					}
 				} else if !errors.Is(err, ErrNotRepository) && !inaccessibleChild(err) {
 					failures = append(failures, err)
