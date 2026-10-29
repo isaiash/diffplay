@@ -160,7 +160,7 @@ func (u *ui) renderGraphCanvas(w, h int, now time.Time) *canvas {
 		if u.warning != "" {
 			help += " · Warning: " + u.warning
 		}
-		c.text(1, h-1, help, muted, w-2)
+		c.text(1, h-1, help, gray, w-2)
 	}
 	if n := u.graph.nodes[u.selected]; !u.combined && n != nil && !n.dir && w >= 24 && h >= 10 {
 		pw := min(76, max(24, w/2))
@@ -176,7 +176,7 @@ func (u *ui) renderGraphCanvas(w, h int, now time.Time) *canvas {
 		if kind == "" {
 			kind = "unchanged"
 		}
-		c.text(px+1, py+1, kind+"  "+signedCount("+", n.added, n.unknown)+" "+signedCount("-", n.removed, n.unknown), muted, pw-2)
+		c.text(px+1, py+1, kind+"  "+signedCount("+", n.added, n.unknown)+" "+signedCount("-", n.removed, n.unknown), gray, pw-2)
 		if unit := u.graphDotUnits[n.id]; unit > 0 {
 			c.text(px+1, py+2, fmt.Sprintf("1 dot ≤ %d cumulative lines · rounded up", unit), gray, pw-2)
 		} else if kind == "unchanged" {
@@ -205,7 +205,7 @@ func (u *ui) renderGraphCanvas(w, h int, now time.Time) *canvas {
 			}
 			c.text(px+1, py+3+i, diffText(line), color, pw-2)
 		}
-		c.text(px+1, py+ph-1, fmt.Sprintf("%d/%d", u.scroll+1, len(lines)), muted, pw-2)
+		c.text(px+1, py+ph-1, fmt.Sprintf("%d/%d", u.scroll+1, len(lines)), gray, pw-2)
 	}
 	return c
 }

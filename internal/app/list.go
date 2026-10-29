@@ -323,7 +323,7 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 				icon = "▾ "
 			}
 		}
-		c.text(treeX, y, prefix+icon, muted, treeWidth-treeX)
+		c.text(treeX, y, prefix+icon, gray, treeWidth-treeX)
 		name := u.displayName(row.id)
 		if row.id == "." {
 			name = path.Base(u.root) + "/"
@@ -383,7 +383,7 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 		}
 		if barSide > 0 && (!row.dir || !u.open[row.id]) && (row.added > 0 || row.removed > 0) {
 			center := barX + barSide
-			c.put(center, y, '│', muted)
+			c.put(center, y, '│', gray)
 			c.cells[y*w+center].bg = rowBG
 			paintHistogram(c, center, y, barSide, row.added, maximum[u.histogramGroup(row.id)], -1, color)
 			paintHistogram(c, center, y, barSide, row.removed, maximum[u.histogramGroup(row.id)], 1, red)
@@ -398,7 +398,7 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 	}
 	if treeWidth < w {
 		for y := 1; y < 1+visible; y++ {
-			c.put(treeWidth, y, '│', muted)
+			c.put(treeWidth, y, '│', gray)
 		}
 		if u.dividerHover == 1 && u.dividerY >= 1 && u.dividerY < 1+visible {
 			c.put(treeWidth, u.dividerY, '↔', white)
@@ -415,7 +415,7 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 				if focus.fresh && kind == "modified" {
 					kind = "new file · modified"
 				}
-				c.text(px, 2, kind, muted, pw)
+				c.text(px, 2, kind, gray, pw)
 				lines := strings.Split(focus.diff, "\n")
 				if focus.diff == "" {
 					lines = []string{"No text diff available."}
@@ -439,7 +439,7 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 		}
 	}
 	if !u.combined {
-		c.text(1, h-1, "q quit · Tab view · ↑↓ select · ←→ tree · wheel · J/K diff · m select/copy", muted, w-2)
+		c.text(1, h-1, "q quit · Tab view · ↑↓ select · ←→ tree · wheel · J/K diff · m select/copy", gray, w-2)
 	}
 	return c
 }

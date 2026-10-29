@@ -7,7 +7,7 @@ import sys
 import tempfile
 import termios
 
-from list_smoke import GREEN, GRAY, WHITE, Terminal, braille_cells, colored_cells, divider, header_prefix, mode
+from list_smoke import GREEN, WHITE, Terminal, braille_cells, colored_cells, divider, header_prefix, mode
 
 
 def geometry(rows):
@@ -119,9 +119,9 @@ def main():
             print("PASS: list selection drives upper-right diff, white Braille cell and both ancestor borders")
 
             # Search real painted graph cells; no fabricated node coordinates.
-            def hover_file(name, color=None):
+            def hover_file(name, color):
                 nonlocal raw, rows
-                points = [(x, y) for x, y, _, fg in braille_cells(raw) if y > midpoint + 2 and (color is None or fg == color)]
+                points = [(x, y) for x, y, _, fg in braille_cells(raw) if y > midpoint + 2 and fg == color]
                 for x, y in points:
                     terminal.send(f"\x1b[<35;{x + 1};{y + 1}M".encode())
                     try:
@@ -135,7 +135,7 @@ def main():
             assert "+new other" in "\n".join(rows[:midpoint])
             assert header_prefix(rows[0]) == totals
             print("PASS: lower graph hover synchronizes changed list row and upper diff")
-            hover_file("context.txt", GRAY)
+            hover_file("context.txt", None)
             assert header_prefix(rows[0]) == totals, "context inspection must not alter history totals"
             assert selected_row(rows, "context.txt", midpoint), "context inspection must temporarily reveal its list row"
             terminal.send(f"\x1b[<35;1;{midpoint + 3}M".encode())

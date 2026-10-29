@@ -164,6 +164,6 @@ func (p *repositoryPicker) render(w, h int) string {
 		}
 	}
 	c.text(1, h-2, "Enter: open checked repositories (or focused row if none checked)", gray, w-2)
-	c.text(1, h-1, "↑↓ move · Tab/Space/click toggle · a all · c clear · q cancel", muted, w-2)
+	c.text(1, h-1, "↑↓ move · Tab/Space/click toggle · a all · c clear · q cancel", gray, w-2)
 	return c.ansi()
 }

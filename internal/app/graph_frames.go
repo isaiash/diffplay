@@ -11,7 +11,7 @@ func folderName(id string) string { return path.Base(id) }
 // Project the same camera transform as file glyphs. Clip drawing, not frame
 // geometry, so panning an edge offscreen never invents a border at the viewport.
 func (u *ui) drawFolderFrame(c *canvas, folder folderEnvelope) {
-	color := muted
+	color := gray
 	titleColor := gray
 	if u.selected != "" && (u.selected == folder.ID || strings.HasPrefix(u.selected, folder.ID+"/")) {
 		color, titleColor = white, white
