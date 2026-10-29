@@ -28,22 +28,35 @@ With Go 1.24+ and Git installed, run this from a checkout:
 ## Usage
 
 ```sh
-diffplay                        # Watch the current directory in list view.
+diffplay                        # Combined view: list/diff above, graph below.
+diffplay --view list            # Start with the full-screen change list.
 diffplay --view graph           # Start in graph view.
 diffplay /path/to/repository    # Watch a specific directory.
 ```
 
-Press `Tab` to cycle through **Clusters → List → Spiral → Hex → Clusters**; press `q` to quit. The list is the existing change list; the other three views are experimental cluster visualizations for comparison, not a final selection.
+The default **Combined** view starts with a horizontal split near half-height: the change list and its right-hand diff preview occupy the upper pane, and the Hex graph occupies the lower pane. Drag either divider with the left mouse button to resize the panes; the split proportions are retained when the terminal is resized. Hover over a divider for its `↕` or `↔` handle. Press `Tab` to cycle **Combined → List → Hex → Combined**, or `q` to quit. Use `--view combined`, `--view list`, or `--view graph` to choose the initial view explicitly.
 
-All cluster variants preserve the same folder hierarchy and file identities. What changes is the spatial packing algorithm and the edit symbol:
+Press `m` to select and copy text using your terminal's mouse selection and copy shortcut (commonly `Ctrl+Shift+C` on Linux or `Cmd+C` on macOS). The screen stays still while selecting; monitoring continues. Press `m` again to resume interaction and show the latest updates. Diff tabs are expanded to eight-column stops, CRLF is displayed normally, and Unicode text is preserved; unsafe terminal control characters are not executed.
 
-- **Clusters**: size-ordered concentric contact rings. Solid disks use outer/core areas for dominant/minority edits, with size proportional to cumulative edited lines within each repository.
-- **Spiral**: golden-angle candidate placement with spatial-hash collision rejection, at every hierarchy level. Pie-sector disks show additions and removals separately; blue marks additions to new files.
-- **Hex**: axial hexagonal lattice packing at every hierarchy level. Equal-capacity file glyphs keep small changes visible beside large ones. Braille dots in diamond-shaped glyphs show additions on the left and removals on the right. One dot represents one line when space permits; larger counts are aggregated with the exact per-file unit shown on hover (rounded up).
+The first row shows the repository name, cumulative additions/removals, and `(added - removed) / current repository lines` as a two-decimal percentage labeled **new lines**. The current line count is right-aligned as **total lines**. The background bar represents the full repository: positive net additions apportioned between new files (blue) and existing files (green), removals (red), then the remaining lines on the terminal's default background. Negative net growth remains a negative percentage; bar segments cannot have negative widths. Repeated edits can exceed the corpus, so colored segments then fill the bar proportionally with no neutral remainder; this is activity, not distinct-line coverage.
 
-When a glyph is too small for detail, `+`, `−`, or `±` preserves the edit direction; `?` means unavailable counts and `·` means no counted line edits. Hover or `n/p` reveals the file, exact cumulative counts, and latest actual diff. Wheel/`+`/`-` zoom, `r` resets zoom, `j/k` scroll the diff, and dragging stays within the file's cluster. Switching algorithms resets manual drag offsets.
+The full-depth denominator is updated in the background. NUL-containing binary files and symlinks are excluded; invalid UTF-8, files over 64 MiB, or counting errors make the percentage unavailable (`?%`) rather than approximate. Monitoring the changes themselves still uses depth five. The combined view has a single help footer at the bottom. Colors use the terminal's ANSI palette and default background on both Linux and macOS; Diffplay does not install or override a theme. Flash fades use discrete dim/bright theme steps rather than hard-coded RGB interpolation.
 
-Layouts are deterministic and stationary at rest: no force simulation or ambient motion. Old deleted markers are retired only alongside a subsequent file change. Short bursts follow live edits only; startup changes stay quiet.
+Selection is synchronized in both directions. Navigating the list paints the corresponding file's existing dots white without changing its shape, and brightens every ancestor folder frame. Hovering/selecting a graph file reveals and scrolls to that file in the list, opening its ancestor folders. Selecting a gray context file temporarily shows a zero-count context row without adding activity or changing totals. In Combined, the diff stays in the upper-right preview rather than covering the graph. List histograms use the largest individual file change within each repository as a stable scale independent of scrolling; collapsed folder aggregates can fill the bar.
+
+Live file changes open their ancestor folders, reveal the file and show its current diff against `HEAD`. A white number before the added-line count records observed file-change bursts; zero is blank. Counts persist per repository in the user's configuration directory and reset for each file when its changes are committed or reverted. Changes between polling scans can be missed. If storage or the `HEAD` preview is unavailable, monitoring continues and the header displays a warning.
+
+Hex packs files on a deterministic hexagonal lattice inside compact rectangular folder frames. Each frame carries only its local folder name followed by `/`; subfolder frames nest inside their parents, and the redundant `./` root frame is omitted. Entire folder branches without changed files are hidden recursively and appear as soon as a file changes. Unchanged files directly inside active folders and their ancestors remain as context; quiet child folders do not. Sibling frames sit close together rather than reserving large circular envelopes. Each file is a circular cell made of Braille dots:
+
+- **Body:** the majority edit color—green for additions to existing files, light blue for additions to new files, or red for removals.
+- **Nucleus:** the minority edit color, centered inside the body. Its share follows the minority fraction of cumulative edited lines; a +30/-10 file has a green body and a red nucleus representing roughly one quarter of its dots. A single edit direction needs no nucleus. Deleted files are red.
+- **Context:** unmodified, non-ignored files appear as faint gray dotted cells whose area is proportional to the file's line count, normalized within each repository. Empty files keep a minimum visible marker; unavailable line counts use a small fallback rather than an estimated count. They are inspectable in the graph but do not enter the changed-only list or its totals. Changed files retain equal available capacity and use dot density for cumulative edits.
+
+For changed files, one dot represents one edited line when space permits; larger counts are aggregated, with the exact per-file unit shown on hover (rounded up). Color proportions are approximate at terminal-cell resolution because each Braille character has only one foreground color; zoom in to resolve small nuclei. Unknown counts remain marked in the inspection panel. Gray context uses exact current UTF-8 text line counts up to 8 MiB, including files whose diff-content capture is truncated; larger files, binary files, and symlinks use the unavailable-count fallback. Very small files retain a minimum visible size.
+
+Hover or `n/p` reveals the file, exact cumulative counts, and latest actual diff. The mouse wheel zooms toward the pointer; `+`/`-` also zoom. Left-button dragging pans the entire graph, whether started on a file or empty space. `r` resets zoom and position, and `j/k` scroll the diff.
+
+Layouts adapt to the viewport and repack when files appear or disappear. They are deterministic and stationary at rest: no force simulation or ambient motion. A live edit briefly flashes its file white and emits a fast fading ripple; startup changes stay quiet. When an untracked file is deleted, its activity and graph cell disappear instead of producing a removal diff. Files tracked by Git still show deletions; old deleted markers are retired only alongside a subsequent file change. Changes entirely between polling scans can be missed.
 Git ignore rules are respected. Open a Git repository, or a directory containing repositories to select from.
 Repository discovery inspects only the selected directory and its immediate children; it never recurses into grandchildren.
 Hidden children and reserved system/dependency directories (`Library`, `System`, `Applications`, `Windows`, `node_modules`, `vendor`, `__pycache__`, and `venv`) are skipped, as are inaccessible children.
@@ -54,6 +67,7 @@ An explicitly selected repository remains valid even if its directory is hidden 
 ```sh
 make test
 make build
+make smoke
 ./bin/diffplay
 ```
 
