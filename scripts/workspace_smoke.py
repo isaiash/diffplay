@@ -2,6 +2,7 @@
 """Exercise discovery, single/multi selection, and live grouped monitoring."""
 import os
 from pathlib import Path
+import select
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,14 @@ def make_repo(root, count):
 
 def bars(row):
     return row.count("█")
+
+
+def check_exit(terminal, label):
+    if terminal.proc.returncode != 0:
+        output = terminal.tail
+        while select.select([terminal.master], [], [], 0)[0]:
+            output += os.read(terminal.master, 262144).decode("utf-8", "replace")
+        raise AssertionError(f"{label} exited with status {terminal.proc.returncode}: {output[-2000:]}")
 
 
 def main():
@@ -67,7 +76,12 @@ def main():
             terminal.frame(lambda raw, rows: mode(rows, "list") and "alpha/" in raw and "beta/" in raw)
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
-            assert terminal.proc.returncode == 0 and termios.tcgetattr(terminal.slave) == terminal.before
+            check_exit(terminal, "selected workspace")
+            if sys.platform == "darwin":
+                # XNU reprocesses PENDIN on a read readiness check.
+                select.select([terminal.slave], [], [], 0)
+            after = termios.tcgetattr(terminal.slave)
+            assert after == terminal.before, f"selected workspace terminal state: before={terminal.before!r}, after={after!r}"
             print("PASS: selected repositories survive resizing/view changes and clean exit")
         finally:
             terminal.close()
@@ -80,7 +94,7 @@ def main():
             assert "✦" not in raw
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
-            assert terminal.proc.returncode == 0
+            check_exit(terminal, "focused workspace")
             print("PASS: Enter without checks selects only the focused repository")
         finally:
             terminal.close()
@@ -89,7 +103,12 @@ def main():
             terminal.frame(lambda raw, rows: "SELECT REPOSITORIES" in raw)
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
-            assert terminal.proc.returncode == 0 and termios.tcgetattr(terminal.slave) == terminal.before
+            check_exit(terminal, "picker cancellation")
+            if sys.platform == "darwin":
+                # XNU reprocesses PENDIN on a read readiness check.
+                select.select([terminal.slave], [], [], 0)
+            after = termios.tcgetattr(terminal.slave)
+            assert after == terminal.before, f"picker terminal state: before={terminal.before!r}, after={after!r}"
             print("PASS: picker cancellation restores terminal state")
         finally:
             terminal.close()

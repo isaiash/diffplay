@@ -8,13 +8,16 @@ test:
 	go vet ./...
 	python3 scripts/test_install.py
 	python3 scripts/test_quickinstall.py
+	python3 scripts/test_smoke_environment.py
+	python3 scripts/test_workspace_terminal.py
 
 smoke: build
 	@scratch=$${TMPDIR:-$$HOME/.cache}; mkdir -p "$$scratch"; \
 	state=$$(mktemp -d "$$scratch/diffplay-smoke.XXXXXX"); \
 	trap 'rm -rf "$$state"' EXIT HUP INT TERM; \
-	export HOME="$$state" XDG_CONFIG_HOME="$$state/config"; \
-	for name in unified terminal list git hierarchy workspace activity selection; do \
+	mkdir -p "$$state/tmp"; \
+	export HOME="$$state" XDG_CONFIG_HOME="$$state/config" TMPDIR="$$state/tmp"; \
+	for name in unified terminal list git hierarchy workspace activity selection contrast; do \
 		python3 -u "scripts/$${name}_smoke.py" "$(CURDIR)/bin/diffplay" || exit $$?; \
 	done
 
