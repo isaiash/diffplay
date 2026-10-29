@@ -404,6 +404,6 @@ func (u *ui) renderList(w, h int, now time.Time) string {
 		footer = "Warning: " + u.warning
 	}
 	c.text(1, h-2, footer, gray, w-2)
-	c.text(1, h-1, "Tab graph/list · ↑↓ move · → expand · ← collapse · click/hover select · wheel scroll · a expand all · c collapse · q quit", muted, w-2)
+	c.text(1, h-1, "Tab next view · ↑↓ move · → expand · ← collapse · click/hover select · wheel scroll · a expand all · c collapse · q quit", muted, w-2)
 	return c.ansi()
 }

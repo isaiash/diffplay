@@ -147,11 +147,13 @@ type ui struct {
 
 	history          *history
 	listMode         bool
+	graphMode        int // 0: contact rings, 1: spiral, 2: hexagonal
 	listSelected     string
 	listOffset       int
 	open             map[string]bool
 	repositoryLabels map[string]string
 	graphRadii       map[string]float64
+	graphDotUnits    map[string]int
 	graphDrags       map[string][2]float64
 }
 
@@ -270,7 +272,14 @@ func (u *ui) input(data []byte) {
 		key := u.pending[0]
 		u.pending = u.pending[1:]
 		if key == '	' {
-			u.listMode = !u.listMode
+			if u.listMode {
+				u.listMode = false
+				u.graphMode = 1
+			} else if u.graphMode == 0 {
+				u.listMode = true
+			} else {
+				u.graphMode = (u.graphMode + 1) % 3
+			}
 			u.dragging = false
 			u.scroll = 0
 			continue

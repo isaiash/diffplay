@@ -49,7 +49,13 @@ func applySnapshot(g *graph, s watch.Snapshot, events []changeEvent, now time.Ti
 		g.upsert(e.Path, path.Dir(e.Path), e.IsDir)
 		g.mark(e.Path, e.Kind, e.Diff, e.At)
 	}
-	g.expire(now)
+	// Retire old tombstones only alongside a file change, never on idle polls.
+	for _, e := range events {
+		if !e.IsDir {
+			g.expire(now)
+			break
+		}
+	}
 }
 func run(args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("diffplay", flag.ContinueOnError)
@@ -59,7 +65,7 @@ func run(args []string, out io.Writer) error {
 	showVersion := flags.Bool("version", false, "print version and exit")
 	view := flags.String("view", "list", "initial view: graph or list (Tab switches views)")
 	flags.Usage = func() {
-		fmt.Fprintln(out, "Diffplay\n\nUsage: diffplay [options] [directory]\n\nLive repository activity inside your terminal: graph and sorted change tree.\nDefaults to the current directory; Git-ignored paths are excluded; depth <= 5.\nOutside Git, inspect only the selected directory and its immediate children; never recurse.\nHidden and reserved system/dependency children are skipped.\nStartup Git changes are loaded quietly; only subsequent live changes flash.\n\nTab: switch graph/list. List: arrows navigate, right expands, left collapses,\nclick toggles folders, hover selects, wheel scrolls, a/c expands/collapses all.\nGraph: hover diff, drag nodes, wheel/+/- zoom, n/p selects nodes.\nq: quit. Counts start from Git status/diff, then accumulate observed live edits.\n\nOptions:")
+		fmt.Fprintln(out, "Diffplay\n\nUsage: diffplay [options] [directory]\n\nLive repository activity inside your terminal: graph and sorted change tree.\nDefaults to the current directory; Git-ignored paths are excluded; depth <= 5.\nOutside Git, inspect only the selected directory and its immediate children; never recurse.\nHidden and reserved system/dependency children are skipped.\nStartup Git changes are loaded quietly; only subsequent live changes flash.\n\nTab: cycle clusters / list / spiral / hex. List: arrows navigate, right expands, left collapses,\nclick toggles folders, hover selects, wheel scrolls, a/c expands/collapses all.\nGraph: hover diff, drag nodes, wheel/+/- zoom, n/p selects nodes.\nq: quit. Counts start from Git status/diff, then accumulate observed live edits.\n\nOptions:")
 		flags.PrintDefaults()
 	}
 	if err := flags.Parse(args); err != nil {
@@ -257,9 +263,8 @@ func run(args []string, out io.Writer) error {
 			if w < 1 || h < 1 {
 				continue
 			}
-			g.expire(now)
 			u.updateGraphMetrics()
-			if !u.paused && !u.listMode {
+			if !u.paused && !u.listMode && u.graphMode == 0 {
 				g.step(w, max(1, h-4), 0.05)
 			} else if w != g.width || max(1, h-4) != g.height {
 				g.step(w, max(1, h-4), 0)

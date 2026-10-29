@@ -122,6 +122,27 @@ def main():
                 _, rows = frame(lambda raw, rows: len(rows) == height and all(len(row) == width for row in rows))
                 assert len(rows) == height
             print("PASS: graph resizes live to 80x24, 160x48, 20x8, and 120x36")
+            # Drain frames until change-triggered bursts have finished.
+            deadline = time.monotonic() + 4.2
+            while time.monotonic() < deadline:
+                frame()
+            for title in ["CHANGES", "SPIRAL", "HEX", "CLUSTERS"]:
+                send(b"\t")
+                raw, _ = frame(lambda raw, rows: "Diffplay  " + title in raw)
+                if title in ("SPIRAL", "HEX"):
+                    assert "new.txt" not in raw and "tracked.txt" not in raw
+                    stable, _ = frame(lambda raw, rows: "Diffplay  " + title in raw)
+                    assert stable == raw, "idle clusters must be stationary"
+                    send(b"nn")  # child.txt, then new.txt in stable path order
+                    raw, _ = frame(lambda raw, rows: title in raw and "new.txt" in raw)
+                    assert "+new file" in raw
+                    if title == "HEX":
+                        assert "1 dot" in raw
+                        (root / "new.txt").write_text("live cluster edit\n")
+                        frame(lambda raw, rows: "HEX" in raw and "+live cluster edit" in raw)
+                    send(b"\x1b[<35;1;1M")
+                    frame(lambda raw, rows: title in raw and "new.txt" not in raw)
+            print("PASS: Tab cycles cluster algorithms; idle positions and live diff inspection work")
             send(b"q")
             proc.wait(timeout=5)
             while select.select([master], [], [], 0.1)[0]:

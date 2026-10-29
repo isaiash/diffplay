@@ -103,14 +103,14 @@ func packingRadius(n *node) float64 {
 // A title band is two physical units (one terminal row) before scaling, plus
 // an extra unit of radial breathing room. Shift contents downward by one unit
 // and expand the circle by three: no heading crosses any contained disk.
-func (f *packedFolder) pack() {
+func (f *packedFolder) packWith(pack func([]packedCircle) float64) {
 	parts := make([]packedCircle, 0, len(f.children)+1)
 	if len(f.nodes) > 0 {
 		f.files = make([]packedCircle, len(f.nodes))
 		for i, n := range f.nodes {
 			f.files[i].r = packingRadius(n) + .35
 		}
-		r := packCircles(f.files)
+		r := pack(f.files)
 		for i := range f.files {
 			f.files[i].y++
 		}
@@ -118,10 +118,10 @@ func (f *packedFolder) pack() {
 		parts = append(parts, f.zone)
 	}
 	for _, child := range f.children {
-		child.pack()
+		child.packWith(pack)
 		parts = append(parts, child.circle)
 	}
-	r := packCircles(parts)
+	r := pack(parts)
 	offset := 0
 	if len(f.nodes) > 0 {
 		f.zone = parts[0]
@@ -171,7 +171,14 @@ func (g *graph) packedHierarchy(w, h int) hierarchyLayout {
 	for _, f := range folders {
 		sort.Slice(f.children, func(i, j int) bool { return f.children[i].id < f.children[j].id })
 	}
-	root.pack()
+	pack := packCircles
+	switch g.layoutMode {
+	case 1:
+		pack = packSpiral
+	case 2:
+		pack = packHex
+	}
+	root.packWith(pack)
 	width, height := float64(max(1, w)-1), float64(max(1, h)-1)
 	scale := math.Min(1, math.Min(width/(2*root.circle.r), height/root.circle.r))
 	var project func(*packedFolder, float64, float64)

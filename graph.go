@@ -28,6 +28,7 @@ type graph struct {
 	ordered       []*node
 	width, height int
 	dirty         bool
+	layoutMode    int
 }
 
 func newGraph() *graph { return &graph{nodes: make(map[string]*node), width: 80, height: 24} }

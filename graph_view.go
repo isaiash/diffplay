@@ -50,15 +50,33 @@ func (u *ui) fileNodes() []*node {
 	return nodes
 }
 func (u *ui) drawFileDisk(c *canvas, n *node, radius float64) {
-	u.drawSolidBubble(c, n, radius)
+	if u.graphMode == 0 {
+		u.drawSolidBubble(c, n, radius)
+	} else {
+		u.drawClusterSymbol(c, n, radius)
+	}
 }
 func (u *ui) renderGraph(w, h int, now time.Time) string {
 	u.updateGraphMetrics()
+	if u.graphMode == 2 {
+		for _, n := range u.fileNodes() {
+			n.radius = 3
+		}
+	}
+	modeChanged := u.graph.layoutMode != u.graphMode
+	u.graph.layoutMode = u.graphMode
+	if modeChanged {
+		u.graphDrags = nil
+	}
+	if modeChanged || (u.graphMode != 0 && (!u.paused || w != u.graph.width || max(1, h-4) != u.graph.height)) {
+		u.graph.step(w, max(1, h-4), 0)
+	}
 	c := newCanvas(w, h)
 
 	clusters := u.graph.clusters(w, max(1, h-4))
 	u.applyGraphDrags(clusters)
 	u.graphRadii = make(map[string]float64)
+	u.graphDotUnits = make(map[string]int)
 	for _, cluster := range clusters {
 		for _, n := range cluster.Nodes {
 			u.graphRadii[n.id] = n.radius * cluster.Scale
@@ -114,7 +132,7 @@ func (u *ui) renderGraph(w, h int, now time.Time) string {
 			}
 		}
 	}
-	c.text(1, 0, "Diffplay  CLUSTERS", white, w-2)
+	c.text(1, 0, "Diffplay  "+clusterTitles[u.graphMode], white, w-2)
 	c.text(24, 0, u.root, gray, w-25)
 	deleted := 0
 	for _, n := range nodes {
@@ -130,12 +148,12 @@ func (u *ui) renderGraph(w, h int, now time.Time) string {
 	if folders > 1 {
 		folders--
 	} // The implicit root envelope is not displayed.
-	c.text(1, 1, fmt.Sprintf("%s  %d files · %d folders · %d deleted  |  size: added + removed lines", state, len(nodes), folders, deleted), muted, w-2)
+	c.text(1, 1, fmt.Sprintf("%s  %d files · %d folders · %d deleted  |  cumulative edits · hover exact counts", state, len(nodes), folders, deleted), muted, w-2)
 	if len(nodes) == 0 && h > 7 {
 		c.text(2, 4, "No changed files.", gray, w-4)
 	}
-	c.text(1, h-2, "shell: dominant edits · core: minority edits · blue: new · size: total lines", gray, w-2)
-	c.text(1, h-1, "Tab graph/list · hover name/diff · drag file · wheel/+/- zoom · n/p select · j/k diff · space freeze · q quit", muted, w-2)
+	c.text(1, h-2, clusterLegends[u.graphMode], gray, w-2)
+	c.text(1, h-1, "Tab next view · hover name/diff · drag file · wheel/+/- zoom · n/p select · j/k diff · space freeze · q quit", muted, w-2)
 	if u.warning != "" {
 		c.text(1, h-2, "Warning: "+u.warning, red, w-2)
 	}
@@ -150,6 +168,9 @@ func (u *ui) renderGraph(w, h int, now time.Time) string {
 		}
 		c.text(px+1, py, u.displayPath(n.id), white, pw-2)
 		c.text(px+1, py+1, n.kind+"  "+signedCount("+", n.added, n.unknown)+" "+signedCount("-", n.removed, n.unknown), muted, pw-2)
+		if unit := u.graphDotUnits[n.id]; u.graphMode == 2 && unit > 0 {
+			c.text(px+1, py+2, fmt.Sprintf("1 dot ≤ %d cumulative lines · rounded up", unit), gray, pw-2)
+		}
 		lines := strings.Split(n.diff, "\n")
 		if n.diff == "" {
 			lines = []string{"No text diff available."}
