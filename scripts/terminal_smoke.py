@@ -16,7 +16,7 @@ import tempfile
 import termios
 import time
 
-from list_smoke import BLUE, GREEN, RED, WHITE, braille_cells, mode
+from list_smoke import BLUE, GREEN, RED, WHITE, assert_terminal_restored, braille_cells, mode
 
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
@@ -49,10 +49,11 @@ def main():
                                 stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
         buffer = ""
         all_tail = ""
+        last_frame = None
         decoder = codecs.getincrementaldecoder("utf-8")("replace")
 
         def frame(predicate=lambda raw, rows: True, timeout=8):
-            nonlocal buffer, all_tail
+            nonlocal buffer, all_tail, last_frame
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
                 ready, _, _ = select.select([master], [], [], 0.1)
@@ -72,10 +73,13 @@ def main():
                         raw = buffer[start:end + 4]
                         buffer = buffer[end + 4:]
                         rows = ANSI.sub("", raw).split("\r\n")
+                        last_frame = raw, rows
                         if predicate(raw, rows):
                             return raw, rows
                 if proc.poll() is not None:
                     raise AssertionError(f"application exited early: {proc.returncode}: {all_tail[-2000:]}")
+                if last_frame is not None and predicate(*last_frame):
+                    return last_frame
             raise AssertionError("timed out waiting for expected terminal frame: " + ANSI.sub("", all_tail[-5000:]))
 
         def send(data):
@@ -201,7 +205,7 @@ def main():
                 all_tail += decoder.decode(os.read(master, 262144))
             assert proc.returncode == 0
             assert "\x1b[?1006l" in all_tail and "\x1b[?1049l" in all_tail
-            assert termios.tcgetattr(slave) == before
+            assert_terminal_restored(slave, before)
             print("PASS: clean exit restores terminal attributes, mouse, and alternate screen")
         finally:
             if proc.poll() is None:

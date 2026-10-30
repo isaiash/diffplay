@@ -6,9 +6,8 @@ import re
 import subprocess
 import sys
 import tempfile
-import termios
 
-from list_smoke import BLUE, GREEN, RED, Terminal, braille_cells, mode
+from list_smoke import BLUE, GREEN, RED, Terminal, assert_terminal_restored, braille_cells, mode
 from contrast_smoke import cells
 
 
@@ -80,7 +79,8 @@ def main():
             terminal.frame(lambda raw, rows: mode(rows, "list") and "plus.go" in raw)
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
-            assert terminal.proc.returncode == 0 and termios.tcgetattr(terminal.slave) == terminal.before
+            assert terminal.proc.returncode == 0, f"hierarchy view exited with status {terminal.proc.returncode}"
+            assert_terminal_restored(terminal.slave, terminal.before)
             print("PASS: hierarchical graph resizes and switches views without losing activity")
         finally:
             terminal.close()

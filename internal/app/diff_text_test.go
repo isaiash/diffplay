@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -35,26 +36,76 @@ func TestEveryDiffPreviewExpandsTabs(t *testing.T) {
 	}
 }
 
-func TestNativeSelectionModeReleasesMouseAndFreezesOnlyDrawing(t *testing.T) {
+func TestNativeSelectionNeedsNoCopyMode(t *testing.T) {
+	for _, mode := range []string{"list", "combined", "graph"} {
+		t.Run(mode, func(t *testing.T) {
+			u := newUI(newGraph(), "/repo")
+			u.listMode, u.combined = mode == "list", mode == "combined"
+			now := time.Unix(200, 0)
+			before := u.render(180, 40, now)
+			u.input([]byte("m"))
+			after := u.render(180, 40, now)
+			if after != before {
+				t.Fatal("m must not change the frame or terminal mouse reporting")
+			}
+			footer := plainList(after)
+			if !strings.Contains(footer, "Shift+drag select") || !strings.Contains(footer, "terminal copy shortcut") {
+				t.Fatal("footer must explain native selection and the configured terminal copy shortcut")
+			}
+			if strings.Contains(footer, "Ctrl+Shift+C") || strings.Contains(footer, "Cmd+C") || strings.Contains(footer, "m copy") {
+				t.Fatal("copy guidance must not hardcode shortcuts or offer a copy mode")
+			}
+			u.input([]byte("	"))
+			if mode == "combined" && !u.listMode || mode == "list" && u.listMode || mode == "graph" && !u.combined {
+				t.Fatal("m must not disable subsequent view controls")
+			}
+		})
+	}
+}
+
+func TestNativeSelectionIdleDrawingSkipsDuplicatesButRendersUpdates(t *testing.T) {
+	for _, mode := range []string{"list", "combined", "graph"} {
+		t.Run(mode, func(t *testing.T) {
+			u := newUI(newGraph(), "/repo")
+			u.listMode, u.combined = mode == "list", mode == "combined"
+			now := time.Unix(200, 0)
+			if u.draw(160, 40, now) == "" {
+				t.Fatal("initial frame missing")
+			}
+			for i := 1; i <= 20; i++ {
+				if u.draw(160, 40, now.Add(time.Duration(i)*50*time.Millisecond)) != "" {
+					t.Fatal("identical idle redraw would clear native selection")
+				}
+			}
+			u.input([]byte("m"))
+			u.applyScanUpdate(scanUpdate{events: []changeEvent{{Path: "live", Kind: "created", Diff: "+live", StatsKnown: true, At: now}}})
+			if frame := u.draw(160, 40, now); !strings.Contains(frame, "live") {
+				t.Fatal("native selection must not freeze live updates")
+			}
+			if u.history.entries["live"] == nil {
+				t.Fatal("monitoring stopped")
+			}
+			if u.draw(180, 50, now) == "" || u.draw(160, 40, now) == "" {
+				t.Fatal("resize must invalidate the previous terminal frame")
+			}
+		})
+	}
+}
+
+func TestNativeSelectionKeepsPaneDraggingAfterM(t *testing.T) {
 	u := newUI(newGraph(), "/repo")
 	u.combined = true
-	u.render(120, 40, time.Now())
+	u.render(160, 40, time.Unix(200, 0))
 	u.input([]byte("m"))
-	frame := u.render(120, 40, time.Now())
-	if !strings.Contains(frame, "\x1b[?1003l") || !strings.Contains(frame, "\x1b[?1006l") || !strings.Contains(frame, "copy") {
-		t.Fatal("native selection must release mouse and explain copying")
+	x := u.listWidth(160)
+	u.input([]byte(fmt.Sprintf("\x1b[<0;%d;4M\x1b[<32;61;31M\x1b[<0;61;31m", x+1)))
+	if u.listWidth(160) != 60 || u.listSplitDragging || u.dragging {
+		t.Fatal("native selection guidance must retain pane drag capture and release")
 	}
-	u.applyScanUpdate(scanUpdate{events: []changeEvent{{Path: "live", Kind: "created", Diff: "+live", StatsKnown: true}}})
-	if u.history.entries["live"] == nil {
-		t.Fatal("selection mode stopped monitoring")
-	}
-	if frame := u.render(160, 50, time.Now()); frame != "" {
-		t.Fatal("redraw would destroy native terminal selection")
-	}
-	u.input([]byte("m"))
-	frame = u.render(160, 50, time.Now())
-	if !strings.Contains(frame, "\x1b[?1003h") || !strings.Contains(frame, "\x1b[?1006h") || !strings.Contains(frame, "live") {
-		t.Fatal("leaving selection must restore mouse and latest changes")
+	top := u.splitTop(40)
+	u.input([]byte(fmt.Sprintf("\x1b[<0;10;%dM\x1b[<32;10;11M\x1b[<0;10;11m", top+1)))
+	if u.splitTop(40) != 10 || u.splitDragging || u.dragging {
+		t.Fatal("horizontal pane drag lost")
 	}
 }
 

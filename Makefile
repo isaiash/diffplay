@@ -10,6 +10,7 @@ test:
 	python3 scripts/test_quickinstall.py
 	python3 scripts/test_smoke_environment.py
 	python3 scripts/test_workspace_terminal.py
+	python3 scripts/test_terminal_restoration.py
 
 smoke: build
 	@scratch=$${TMPDIR:-$$HOME/.cache}; mkdir -p "$$scratch"; \
@@ -17,7 +18,7 @@ smoke: build
 	trap 'rm -rf "$$state"' EXIT HUP INT TERM; \
 	mkdir -p "$$state/tmp"; \
 	export HOME="$$state" XDG_CONFIG_HOME="$$state/config" TMPDIR="$$state/tmp"; \
-	for name in unified terminal list git hierarchy workspace activity selection contrast; do \
+	for name in unified terminal list git hierarchy workspace activity selection contrast burst; do \
 		python3 -u "scripts/$${name}_smoke.py" "$(CURDIR)/bin/diffplay" || exit $$?; \
 	done
 

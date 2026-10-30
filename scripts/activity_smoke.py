@@ -11,7 +11,7 @@ import tempfile
 import termios
 import time
 
-from list_smoke import ANSI, WHITE, Terminal, divider, mode, sgr_colors, sgr_inverse
+from list_smoke import ANSI, WHITE, Terminal, assert_terminal_restored, divider, mode, sgr_colors, sgr_inverse
 
 
 def effective_cells(raw):
@@ -71,7 +71,7 @@ class ActivityTerminal(Terminal):
         self.send(b"q")
         self.proc.wait(timeout=5)
         assert self.proc.returncode == 0, self.tail[-2000:]
-        assert termios.tcgetattr(self.slave) == self.before, "terminal attributes not restored"
+        assert_terminal_restored(self.slave, self.before)
 
     def close(self):
         try:

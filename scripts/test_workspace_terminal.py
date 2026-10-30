@@ -23,7 +23,7 @@ class WorkspaceTerminalTest(unittest.TestCase):
         self.run_workspace()
 
     def test_darwin_rejects_unrelated_terminal_changes(self):
-        for index, label in ((0, "selected workspace"), (2, "picker")):
+        for index, label in ((0, "selected workspace"), (1, "focused workspace"), (2, "picker")):
             with self.subTest(index=index), self.assertRaisesRegex(AssertionError, label + " terminal state"):
                 self.run_workspace(changed_index=index)
 
@@ -68,8 +68,8 @@ class WorkspaceTerminalTest(unittest.TestCase):
                 if self.index == 0:
                     frames = [
                         ("SELECT REPOSITORIES alpha beta 2 repositories found", [""]),
-                        ("alpha/ beta/", [f"{Path(self.root).name} +112 100.00% new lines", "alpha/same.txt ████", "beta/same.txt ████", "112 total lines"]),
-                        ("✦", [f"{Path(self.root).name} +113 100.00% new lines", "alpha/same.txt ✦", "beta/same.txt", "113 total lines"]),
+                        ("alpha/ beta/", ["+112 100.00% new lines", "alpha/same.txt ████", "beta/same.txt ████", "112 total lines"]),
+                        ("✦", ["+113 100.00% new lines", "alpha/same.txt ✦", "beta/same.txt", "113 total lines"]),
                         ("second.txt", []),
                         ("", []),
                         ("beta/second.txt", []),
@@ -133,7 +133,7 @@ class WorkspaceTerminalTest(unittest.TestCase):
              patch.object(termios, "tcgetattr", side_effect=get_attrs), \
              patch.object(select, "select", side_effect=readiness):
             workspace_smoke.main()
-        self.assertEqual(selects, [0, 2] if platform == "darwin" else [])
+        self.assertEqual(selects, [0, 1, 2] if platform == "darwin" else [])
         self.assertEqual([t.input_after for t in terminals], [b"pending input\n"] * 3)
 
 

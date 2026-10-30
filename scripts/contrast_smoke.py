@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tempfile
 
-from list_smoke import ANSI, Terminal, divider, mode
+from list_smoke import ANSI, Terminal, assert_terminal_restored, divider, mode
 
 
 def cells(raw):
@@ -144,6 +144,7 @@ def main():
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
             assert terminal.proc.returncode == 0
+            assert_terminal_restored(terminal.slave, terminal.before)
             print("PASS: theme-default structure in list and combined PTY frames")
         finally:
             terminal.close()

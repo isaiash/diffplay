@@ -30,6 +30,78 @@ func (u *ui) drawClusterSymbol(c *canvas, n *node, radius float64) {
 		points = append(points, point{int(x * 2), int(y * 4), 0})
 	}
 	sort.SliceStable(points, func(i, j int) bool { return points[i].distance < points[j].distance })
+	if u.combined {
+		addition := green
+		if n.fresh || n.kind == "created" {
+			addition = blue
+		}
+		layers := []struct {
+			color  rgb
+			weight float64
+		}{{addition, float64(max(0, n.added))}, {red, float64(max(0, n.removed))}}
+		if n.unknown {
+			layers[0].weight, layers[1].weight = 0, 0
+		}
+		weight := layers[0].weight + layers[1].weight
+		if weight == 0 {
+			layers[0].weight, weight = 1, 1
+			if n.kind == "deleted" {
+				layers[0].color = red
+			}
+		}
+		// Stable ties use additions outside removals; the largest layer is outermost.
+		sort.SliceStable(layers, func(i, j int) bool { return layers[i].weight > layers[j].weight })
+		type diskCell struct {
+			key      [2]int
+			count    int
+			distance float64
+			color    rgb
+		}
+		cells := make(map[[2]int]*diskCell)
+		for _, p := range points {
+			key := [2]int{p.x / 2, p.y / 4}
+			if cells[key] == nil {
+				dx, dy := float64(key[0])+.5-x, 2*(float64(key[1])+.5-y)
+				cells[key] = &diskCell{key: key, distance: dx*dx + dy*dy}
+			}
+			cells[key].count++
+		}
+		ordered := make([]*diskCell, 0, len(cells))
+		for _, cell := range cells {
+			ordered = append(ordered, cell)
+		}
+		sort.Slice(ordered, func(i, j int) bool {
+			if ordered[i].distance != ordered[j].distance {
+				return ordered[i].distance > ordered[j].distance
+			}
+			if ordered[i].key[1] != ordered[j].key[1] {
+				return ordered[i].key[1] < ordered[j].key[1]
+			}
+			return ordered[i].key[0] < ordered[j].key[0]
+		})
+		layer, used := 0, 0
+		boundary := float64(len(points)) * layers[0].weight / weight
+		for _, cell := range ordered {
+			// Whole-cell midpoint rounding keeps each cumulative dot budget within four dots.
+			for layer < len(layers)-1 && layers[layer+1].weight > 0 && float64(used)+float64(cell.count)/2 > boundary {
+				layer++
+				boundary += float64(len(points)) * layers[layer].weight / weight
+			}
+			cell.color = layers[layer].color
+			used += cell.count
+		}
+		for _, p := range points {
+			if p.y < 8 || p.y >= (c.h-2)*4 || p.x < 0 || p.x >= c.w*2 {
+				continue
+			}
+			color := cells[[2]int{p.x / 2, p.y / 4}].color
+			if u.selected == n.id && n.id != "" {
+				color = white
+			}
+			c.dot(p.x, p.y, color)
+		}
+		return
+	}
 	total := n.added + n.removed
 	unit := max(1, 1+(total-1)/len(points))
 	dots := len(points)

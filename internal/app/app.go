@@ -167,7 +167,7 @@ func Run(args []string, out io.Writer) error {
 	}
 	defer term.Restore(int(os.Stdin.Fd()), old)
 	// Alternate screen, no wrapping, hidden cursor, SGR all-motion mouse.
-	if _, err = io.WriteString(out, "\x1b[?1049h\x1b[?7l\x1b[?25l\x1b[?1003h\x1b[?1006h\x1b[2J"); err != nil {
+	if _, err = io.WriteString(out, "\x1b[?1049h\x1b[?7l\x1b[?25l\x1b[?1003h\x1b[?1006h\x1b[2J"+terminalColorQueries); err != nil {
 		return err
 	}
 	defer io.WriteString(out, "\x1b[?1006l\x1b[?1003l\x1b[?25h\x1b[?7h\x1b[0m\x1b[?1049l")
@@ -259,7 +259,7 @@ func Run(args []string, out io.Writer) error {
 				continue
 			}
 
-			if _, err := io.WriteString(out, u.render(w, h, now)); err != nil {
+			if _, err := io.WriteString(out, u.draw(w, h, now)); err != nil {
 				return err
 			}
 		}

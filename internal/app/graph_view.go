@@ -11,27 +11,42 @@ import (
 const graphRippleDuration = 900 * time.Millisecond
 const graphFlashDuration = 250 * time.Millisecond
 
-// Changed files retain equal capacity. Context disk area follows current lines,
-// normalized per repository, with minimum honest markers for empty/unknown files.
+// Combined disks follow edit volume per repository; standalone retains sparse
+// equal-capacity edit disks and size-proportional unchanged context.
 func (u *ui) updateGraphMetrics() {
-	maximum := make(map[string]int)
-	for _, n := range u.fileNodes() {
-		if n.kind == "" && n.linesKnown && u.history.entries[n.id] == nil {
-			group := u.histogramGroup(n.id)
-			maximum[group] = max(maximum[group], n.lines)
-		}
-	}
 	for _, n := range u.graph.list() {
-		if n.dir {
-			continue
-		}
 		if r := u.history.entries[n.id]; r != nil {
 			n.added = r.added
 			n.removed = r.removed
 			n.fresh = r.fresh
 			n.unknown = r.unknown
 		}
+	}
+	maximum := make(map[string]int)
+	for _, n := range u.fileNodes() {
+		lines := n.lines
+		known := n.linesKnown
+		if u.combined {
+			lines, known = max(0, n.added)+max(0, n.removed), !n.unknown
+		}
+		if !n.dir && known && (u.combined || n.kind == "" && u.history.entries[n.id] == nil) {
+			group := u.histogramGroup(n.id)
+			maximum[group] = max(maximum[group], lines)
+		}
+	}
+	for _, n := range u.graph.list() {
+		if n.dir {
+			continue
+		}
 		n.radius = 3
+		if u.combined {
+			n.radius = .5
+			edits := max(0, n.added) + max(0, n.removed)
+			if peak := maximum[u.histogramGroup(n.id)]; peak > 0 && edits > 0 && !n.unknown {
+				n.radius = max(.5, 3*math.Sqrt(float64(edits)/float64(peak)))
+			}
+			continue
+		}
 		if n.kind == "" && n.added+n.removed == 0 && !n.unknown {
 			n.radius = .6
 			if n.linesKnown {
@@ -48,7 +63,7 @@ func graphFileColor(n *node) rgb {
 	return outer
 }
 func (u *ui) fileNodes() []*node {
-	return u.graph.visibleFiles()
+	return u.graph.visibleFiles(u.combined)
 }
 func (u *ui) drawFileDisk(c *canvas, n *node, radius float64) {
 	u.drawClusterSymbol(c, n, radius)
@@ -63,10 +78,11 @@ func (u *ui) renderGraphCanvas(w, h int, now time.Time) *canvas {
 	u.graphRendering = true
 	defer func() { u.graphRendering = false }()
 
-	layout := u.graph.packedHierarchy(w, contentHeight)
-	if !u.paused || w != u.graph.width || contentHeight != u.graph.height {
+	layout := u.graph.packedHierarchy(w, contentHeight, u.combined)
+	if !u.paused || w != u.graph.width || contentHeight != u.graph.height || u.graphLayoutCombined != u.combined {
 		u.graph.applyLayout(layout, w, contentHeight)
 	}
+	u.graphLayoutCombined = u.combined
 	c := newCanvas(w, contentHeight+4)
 
 	clusters := layout.clusters
@@ -156,7 +172,7 @@ func (u *ui) renderGraphCanvas(w, h int, now time.Time) *canvas {
 		if u.paused {
 			state = "PAUSED"
 		}
-		help := fmt.Sprintf("%s %d files · q quit · Tab view · drag pan · wheel · j/k diff · m copy", state, len(nodes))
+		help := fmt.Sprintf("%s %d files · q quit · Tab view · drag pan · wheel · j/k diff · Shift+drag select · terminal copy shortcut", state, len(nodes))
 		if u.warning != "" {
 			help += " · Warning: " + u.warning
 		}

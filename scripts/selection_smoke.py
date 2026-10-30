@@ -6,10 +6,9 @@ import select
 import subprocess
 import sys
 import tempfile
-import termios
 import time
 
-from list_smoke import Terminal, divider, mode
+from list_smoke import Terminal, assert_terminal_restored, divider, mode
 
 
 def main():
@@ -25,7 +24,7 @@ def main():
         terminal = Terminal(binary, root, "combined")
         terminal.resize(160, 36)
         try:
-            raw, rows = terminal.frame(lambda raw, rows: mode(rows, "combined") and "file.txt" in rows[1])
+            raw, rows = terminal.frame(lambda raw, rows: mode(rows, "combined") and "file.txt" in rows[2])
             terminal.send(b"\x1b[B")
             raw, rows = terminal.frame(lambda raw, rows: "+       日本語 e\u0301" in raw)
             assert "�" not in raw, "valid tabs, CRLF and combining accents must not become replacement characters"
@@ -44,26 +43,29 @@ def main():
             terminal.frame(lambda raw, rows: len(rows) == 48 and divider(rows) == 16 and rows[1][75] == "│")
             print("PASS: both resize handles hover, drag across panes, release and retain proportions", flush=True)
 
-            terminal.send(b"m")
-            terminal.frame(lambda raw, rows: "Select with mouse" in rows[-1])
-            assert "\x1b[?1003l" in terminal.tail and "\x1b[?1006l" in terminal.tail
+            assert "Shift+drag" in rows[-1], "native selection must not need an application mode"
+            terminal.send(b"m")  # The old toggle must no longer freeze the display.
             target.write_bytes("\t日本語 e\u0301\r\n\twhile copied\r\n".encode())
-            held = terminal.buffer
+            terminal.frame(lambda raw, rows: "+       while copied" in raw and mode(rows, "combined"))
+            terminal.frame(lambda raw, rows: "+       while copied" in raw and "✦" not in raw)
+            # Drain frames already queued by the final animation tick.
+            deadline = time.monotonic() + .2
+            while time.monotonic() < deadline:
+                if select.select([terminal.master], [], [], .05)[0]:
+                    terminal.decoder.decode(os.read(terminal.master, 262144))
             terminal.buffer = ""
+            held = ""
             deadline = time.monotonic() + .5
             while time.monotonic() < deadline:
                 if select.select([terminal.master], [], [], .05)[0]:
                     held += terminal.decoder.decode(os.read(terminal.master, 262144))
-            assert "\x1b[H" not in held, "selection mode must not redraw over the native selection"
-            terminal.send(b"m")
-            terminal.frame(lambda raw, rows: "+       while copied" in raw and mode(rows, "combined"))
-            assert terminal.tail.rfind("\x1b[?1003h") > terminal.tail.rfind("\x1b[?1003l")
-            assert terminal.tail.rfind("\x1b[?1006h") > terminal.tail.rfind("\x1b[?1006l")
+            assert "\x1b[H" not in held, "idle redraws must not erase native terminal selection"
+            assert "\x1b[?1003l" not in terminal.tail and "\x1b[?1006l" not in terminal.tail
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
             assert terminal.proc.returncode == 0
-            assert termios.tcgetattr(terminal.slave) == terminal.before
-            print("PASS: Unicode/tab/CRLF diff, native selection releases mouse, drawing freezes, monitoring resumes and terminal restores", flush=True)
+            assert_terminal_restored(terminal.slave, terminal.before)
+            print("PASS: Unicode/tab/CRLF diff, Shift+drag guidance, no m mode, no idle redraws, live monitoring and terminal restoration", flush=True)
         finally:
             terminal.close()
 

@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 	"math/big"
-	"path/filepath"
 	"strings"
 )
 
@@ -32,8 +31,8 @@ func (u *ui) sessionEdits() ([3]*big.Int, bool) {
 
 // headerWidths apportions terminal cells exactly using largest remainders;
 // ties go to blue, then green, then red.
-func headerWidths(width int, counts [4]*big.Int) [4]int {
-	var widths [4]int
+func headerWidths(width int, counts [3]*big.Int) [3]int {
+	var widths [3]int
 	total := new(big.Int)
 	for _, count := range counts {
 		total.Add(total, count)
@@ -41,7 +40,7 @@ func headerWidths(width int, counts [4]*big.Int) [4]int {
 	if width <= 0 || total.Sign() == 0 {
 		return widths
 	}
-	var rem [4]*big.Int
+	var rem [3]*big.Int
 	used := 0
 	for i := range counts {
 		quotient, remainder := new(big.Int), new(big.Int)
@@ -143,40 +142,16 @@ func (u *ui) renderSessionHeader(c *canvas) {
 		metrics += " "
 	}
 	metrics += percent
-	name := headerPath(filepath.Base(u.root), available-textWidth(metrics)-1)
 	header := metrics
-	if name != "" {
-		header = name + " " + header
-	}
 	if u.warning != "" && textWidth(header+"  Warning: "+u.warning) <= available {
 		header += "  Warning: " + u.warning
 	}
 	c.text(0, 0, header, gray, available)
-	if known && !unknown && denominator > 0 {
-		positiveNet := new(big.Int).Set(net)
-		if positiveNet.Sign() < 0 {
-			positiveNet.SetInt64(0)
-		}
-		neutral := new(big.Int).Sub(big.NewInt(int64(denominator)), positiveNet)
-		neutral.Sub(neutral, counts[2])
-		if neutral.Sign() < 0 {
-			// shortcut: cumulative edits can exceed the corpus; normalize colors until distinct-line coverage is tracked.
-			neutral.SetInt64(0)
-		}
-		scale := new(big.Int).Set(added)
-		if scale.Sign() == 0 {
-			scale.SetInt64(1)
-		}
-		weights := [4]*big.Int{
-			new(big.Int).Mul(positiveNet, counts[0]),
-			new(big.Int).Mul(positiveNet, counts[1]),
-			new(big.Int).Mul(counts[2], scale),
-			new(big.Int).Mul(neutral, scale),
-		}
-		widths := headerWidths(c.w, weights)
+	if !unknown {
+		widths := headerWidths(c.w, counts)
 		colors := [3]rgb{blue, green, red}
 		x := 0
-		for i, n := range widths[:3] {
+		for i, n := range widths {
 			for j := 0; j < n; j++ {
 				c.cells[x].bg = colors[i]
 				c.cells[x].color = headerInk

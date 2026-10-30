@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestRepositoryHeaderNetBar(t *testing.T) {
+func TestRepositoryHeaderDiffBar(t *testing.T) {
 	u := newUI(newGraph(), "/repo")
 	u.repositoryTotals = map[string]repositoryLineCount{"": {lines: 200, known: true}}
 	u.recordChange("new", "created", false, "", 60, 0, true, time.Time{})
@@ -16,11 +16,11 @@ func TestRepositoryHeaderNetBar(t *testing.T) {
 	for x, cell := range c.cells[:c.w] {
 		want := rgb{}
 		switch {
-		case x < 18:
+		case x < 43:
 			want = blue
-		case x < 30:
+		case x < 72:
 			want = green
-		case x < 50:
+		default:
 			want = red
 		}
 		if cell.bg != want {
@@ -41,14 +41,14 @@ func TestRepositoryHeaderEdgeCases(t *testing.T) {
 		percent               string
 		widths                [4]int
 	}{
-		{"unknown corpus", 100, false, 60, 40, 40, "?%", [4]int{0, 0, 0, 100}},
+		{"unknown corpus", 100, false, 60, 40, 40, "?%", [4]int{43, 29, 28, 0}},
 		{"empty", 0, true, 0, 0, 0, "0.00%", [4]int{0, 0, 0, 100}},
-		{"zero corpus additions", 0, true, 1, 0, 0, "?%", [4]int{0, 0, 0, 100}},
-		{"zero corpus removals", 0, true, 0, 0, 1, "?%", [4]int{0, 0, 0, 100}},
-		{"zero corpus balanced", 0, true, 1, 0, 1, "0.00%", [4]int{0, 0, 0, 100}},
-		{"negative net", 100, true, 5, 5, 30, "-20.00%", [4]int{0, 0, 30, 70}},
-		{"saturated", 40, true, 40, 40, 20, "150.00%", [4]int{38, 37, 25, 0}},
-		{"two decimals", 300, true, 1, 0, 0, "0.33%", [4]int{0, 0, 0, 100}},
+		{"zero corpus additions", 0, true, 1, 0, 0, "?%", [4]int{100, 0, 0, 0}},
+		{"zero corpus removals", 0, true, 0, 0, 1, "?%", [4]int{0, 0, 100, 0}},
+		{"zero corpus balanced", 0, true, 1, 0, 1, "0.00%", [4]int{50, 0, 50, 0}},
+		{"negative net", 100, true, 5, 5, 30, "-20.00%", [4]int{13, 12, 75, 0}},
+		{"saturated", 40, true, 40, 40, 20, "150.00%", [4]int{40, 40, 20, 0}},
+		{"two decimals", 300, true, 1, 0, 0, "0.33%", [4]int{100, 0, 0, 0}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			u := newUI(newGraph(), "/repo")
@@ -57,7 +57,7 @@ func TestRepositoryHeaderEdgeCases(t *testing.T) {
 			u.recordChange("old", "modified", false, "", tt.added, tt.removed, true, time.Time{})
 			c := u.renderListCanvas(100, 5, time.Time{})
 			line := headerText(c)
-			if !strings.Contains(line, " "+tt.percent+" new lines") {
+			if !strings.Contains(line, tt.percent+" new lines") {
 				t.Fatalf("percentage: %q", line)
 			}
 			label := "? total lines"
@@ -93,9 +93,9 @@ func TestRepositoryHeaderOverflowNet(t *testing.T) {
 	}
 	for x, cell := range c.cells[:c.w] {
 		want := red
-		if x < 25 {
+		if x < 34 {
 			want = blue
-		} else if x < 50 {
+		} else if x < 67 {
 			want = green
 		}
 		if cell.bg != want {
@@ -109,7 +109,7 @@ func TestRepositoryHeaderNetText(t *testing.T) {
 	u.repositoryTotals = map[string]repositoryLineCount{"": {lines: 250, known: true}}
 	u.recordChange("x", "modified", false, "", 50, 21, true, time.Time{})
 	line := headerText(u.renderListCanvas(80, 5, time.Time{}))
-	if !strings.HasPrefix(line, "project +50 -21 11.60% new lines") || !strings.HasSuffix(line, "250 total lines") || strings.Contains(line, "/parent") {
+	if !strings.HasPrefix(line, "+50 -21 11.60% new lines") || !strings.HasSuffix(line, "250 total lines") || strings.Contains(line, "/parent") {
 		t.Fatalf("repository header: %q", line)
 	}
 }

@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 
-from list_smoke import BLUE, GREEN, RED, Terminal, braille_cells, colored_cells, divider, header_backgrounds, header_prefix, mode
+from list_smoke import BLUE, GREEN, RED, Terminal, assert_terminal_restored, braille_cells, colored_cells, divider, header_backgrounds, header_prefix, mode
 
 
 def git(root, *args):
@@ -44,6 +44,7 @@ def deletion_check(binary, parent):
         terminal.send(b"q")
         terminal.proc.wait(timeout=5)
         assert terminal.proc.returncode == 0
+        assert_terminal_restored(terminal.slave, terminal.before)
     finally:
         terminal.close()
 
@@ -65,25 +66,22 @@ def header_integration(binary, parent):
     (root / "removed.txt").unlink()
     (root / "new.txt").write_text("fresh\n" * 4)
     terminal = Terminal(binary, root)
-    colors = [BLUE, GREEN, RED, None]
+    colors = [BLUE, GREEN, RED]
 
     def expect(label, blue, green, red, denominator, view="list"):
         added = blue + green
         net = added - red
         metrics = (f" +{added}" if added else "") + (f" -{red}" if red else "")
-        expected = f"{root.name}{metrics} {100 * net / denominator:.2f}% new lines"
+        expected = f"{metrics} {100 * net / denominator:.2f}% new lines".strip()
         raw, rows = terminal.frame(lambda raw, rows: mode(rows, view) and header_prefix(rows[0]) == expected)
         assert rows[0].endswith(f"{denominator} total lines"), (label, rows[0])
         assert str(root) not in rows[0], (label, rows[0])
         assert "|" not in rows[0], rows[0]
         width = len(rows[0])
-        positive_net = max(net, 0)
-        scale = max(added, 1)
-        neutral = max(denominator - positive_net - red, 0)
-        weights = [positive_net * blue, positive_net * green, red * scale, neutral * scale]
+        weights = [blue, green, red]
         quotients = [divmod(width * count, sum(weights)) for count in weights]
         lengths = [q for q, _ in quotients]
-        order = sorted(range(4), key=lambda i: (-quotients[i][1], i))
+        order = sorted(range(3), key=lambda i: (-quotients[i][1], i))
         for i in order[:width - sum(lengths)]:
             lengths[i] += 1
         expected_bg = [color for color, n in zip(colors, lengths) for _ in range(n)]
@@ -101,7 +99,7 @@ def header_integration(binary, parent):
             for name, counts in (("new.txt", {"+4": BLUE}),
                                  ("edited.txt", {"+2": GREEN, "-1": RED}),
                                  ("removed.txt", {"-3": RED})):
-                y = next(y for y, row in enumerate(rows) if name in row)
+                y = next(y for y, row in enumerate(rows[2:], 2) if name in row and all(text in row for text in counts))
                 line = [(x, ch, color) for x, line_y, ch, color in cells if line_y == y]
                 plain = "".join(ch for _, ch, _ in line)
                 for text, expected in counts.items():
@@ -145,6 +143,7 @@ def header_integration(binary, parent):
         terminal.send(b"q")
         terminal.proc.wait(timeout=5)
         assert terminal.proc.returncode == 0
+        assert_terminal_restored(terminal.slave, terminal.before)
     finally:
         terminal.close()
 
@@ -219,6 +218,7 @@ def main():
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
             assert terminal.proc.returncode == 0
+            assert_terminal_restored(terminal.slave, terminal.before)
             print("PASS: Git-seeded state survives view switching and clean exit")
         finally:
             terminal.close()

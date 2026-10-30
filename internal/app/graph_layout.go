@@ -164,7 +164,7 @@ func (f *packedFolder) packRect(aspect float64) {
 	}
 }
 
-func (g *graph) packedHierarchy(w, h int) hierarchyLayout {
+func (g *graph) packedHierarchy(w, h int, changedOnly ...bool) hierarchyLayout {
 	result := hierarchyLayout{positions: make(map[*node][2]float64)}
 	root := &packedFolder{id: "."}
 	folders := map[string]*packedFolder{".": root}
@@ -187,7 +187,7 @@ func (g *graph) packedHierarchy(w, h int) hierarchyLayout {
 		return f
 	}
 	count := 0
-	for _, n := range g.visibleFiles() {
+	for _, n := range g.visibleFiles(changedOnly...) {
 		parent := n.parent
 		if parent == "" {
 			parent = "."

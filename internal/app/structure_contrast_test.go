@@ -43,7 +43,7 @@ func TestStructureListTreeAndHistogram(t *testing.T) {
 			y := -1
 			for i, row := range rows {
 				if row.id == tc.id {
-					y = i + 1
+					y = i + 2
 				}
 			}
 			if y < 0 {
@@ -72,7 +72,7 @@ func TestStructureListTreeAndHistogram(t *testing.T) {
 		y := -1
 		for i, row := range rows {
 			if row.id == "dir/nested/file" {
-				y = i + 1
+				y = i + 2
 			}
 		}
 		if y < 0 {

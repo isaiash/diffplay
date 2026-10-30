@@ -16,7 +16,7 @@ import termios
 import time
 
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-HEADER = re.compile(r"^.+?(?: \+\d+\??| \+\?)*(?: -\d+\??| -\?)* (?:-?\d+\.\d{2}|\?)% new lines")
+HEADER = re.compile(r"^(?:(?:\+|-)(?:\d+\??|\?) )*(?:-?\d+\.\d{2}|\?)% new lines")
 BLACK, GRAY, WHITE = 0, 8, 15
 BLUE, GREEN, RED = (139, 202, 255), (115, 211, 153), (244, 92, 105)
 
@@ -116,6 +116,12 @@ def header_prefix(row):
     return match.group()
 
 
+assert header_prefix("+19 -3 76.19% new lines    21 total lines") == "+19 -3 76.19% new lines"
+assert header_prefix("0.00% new lines    0 total lines") == "0.00% new lines"
+assert header_prefix("+? -? ?% new lines    ? total lines") == "+? -? ?% new lines"
+assert HEADER.match("repo +19 -3 76.19% new lines") is None
+
+
 def header_backgrounds(raw):
     """Decode effective theme/RGB background for each first-row cell."""
     line = raw.split("\r\n", 1)[0]
@@ -149,6 +155,14 @@ def mode(rows, expected):
 def braille_cells(raw):
     """Return body glyph positions/colors, including reused ANSI foregrounds."""
     return [cell for cell in colored_cells(raw) if "\u2801" <= cell[2] <= "\u28ff"]
+
+
+def assert_terminal_restored(slave, before, label="terminal"):
+    if sys.platform == "darwin":
+        # XNU reprocesses the transient PENDIN flag on a read readiness check.
+        select.select([slave], [], [], 0)
+    after = termios.tcgetattr(slave)
+    assert after == before, f"{label} state: before={before!r}, after={after!r}"
 
 
 class Terminal:
@@ -194,10 +208,15 @@ class Terminal:
                     raw = self.buffer[start:end + 4]
                     self.buffer = self.buffer[end + 4:]
                     rows = ANSI.sub("", raw).split("\r\n")
+                    self.last_frame = raw, rows
                     if predicate(raw, rows):
                         return raw, rows
             if self.proc.poll() is not None:
                 raise AssertionError(f"unexpected exit {self.proc.returncode}: {self.tail[-2000:]}")
+            # An unchanged TUI keeps its last frame instead of repainting selections.
+            cached = getattr(self, "last_frame", None)
+            if cached is not None and predicate(*cached):
+                return cached
         raise AssertionError("expected frame not found: " + ANSI.sub("", self.tail[-7000:]))
 
     def close(self):
@@ -222,19 +241,24 @@ def main():
         terminal = Terminal(binary, root)
         try:
             raw, rows = terminal.frame(lambda raw, rows: mode(rows, "list") and "existing.txt" not in raw and "removed.txt" not in raw)
-            assert not any(label in raw for label in ["ADDED", "REMOVED", "CHANGED PATHS"])
-            print("PASS: explicit list view has no section-header row or unchanged paths")
+            titles = rows[1]
+            assert all(label in titles for label in ["HITS", "ADDED", "REMOVED", "%", root.name]), titles
+            assert titles.index("HITS") < titles.index("ADDED") < titles.index("REMOVED") < titles.index("%") < titles.index(root.name), titles
+            assert root.name not in rows[0] and "CHANGED PATHS" not in raw
+            print("PASS: list column titles include repository and percentage; global header omits repository")
             (root / "new.txt").write_text("new line\n" * 10)
             raw, rows = terminal.frame(lambda raw, rows: "new.txt" in raw and "+10" in raw and "✦" in raw)
-            assert "new.txt" in rows[1]
+            assert "new.txt" in rows[2] and " 100 " in rows[2]
             (root / "docs/existing.txt").write_text("keep\nnew1\nnew2\n")
-            terminal.frame(lambda raw, rows: "existing.txt" in raw and "+12" in raw and "-1" in raw)
+            _, rows = terminal.frame(lambda raw, rows: "existing.txt" in raw and "+12" in raw and "-1" in raw)
+            existing = next(row for row in rows if "existing.txt" in row)
+            assert " 100 " in existing, "file percentage must count both added and removed lines"
             (root / "deep/path").mkdir(parents=True)
             (root / "deep/path/change.txt").write_text("added\n" * 7)
             terminal.frame(lambda raw, rows: "change.txt" in raw and "+19" in raw)
             (root / "removed.txt").unlink()
             raw, rows = terminal.frame(lambda raw, rows: "removed.txt" in raw and "+19" in header_prefix(rows[0]) and "-3" in header_prefix(rows[0]))
-            assert header_prefix(rows[0]) == "repo +19 -3 76.19% new lines"
+            assert header_prefix(rows[0]) == "+19 -3 76.19% new lines"
             assert rows[0].endswith("21 total lines") and str(root) not in rows[0]
             assert "untouched.txt" not in raw
             file_rows = [row for row in rows[1:-1] if any(name in row for name in ["new.txt", "deep/", "docs/", "removed.txt"])]
@@ -281,7 +305,7 @@ def main():
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
             assert terminal.proc.returncode == 0
-            assert termios.tcgetattr(terminal.slave) == terminal.before
+            assert_terminal_restored(terminal.slave, terminal.before)
             print("PASS: clean exit restores terminal attributes")
         finally:
             terminal.close()

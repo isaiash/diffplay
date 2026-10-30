@@ -10,8 +10,9 @@ import (
 )
 
 type rgb struct {
-	r, g, b int
-	dim     bool
+	r, g, b  int
+	dim      bool
+	explicit bool // Distinguish true RGB black from an unspecified color.
 }
 
 // A negative green channel marks a palette index; zero remains unspecified.
@@ -29,7 +30,7 @@ func (color rgb) sgr(bg bool) string {
 	if color.dim {
 		intensity = 2
 	}
-	if color.g >= 0 && (color.r != 0 || color.g != 0 || color.b != 0) {
+	if color.g >= 0 && (color.explicit || color.r != 0 || color.g != 0 || color.b != 0) {
 		if bg {
 			return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", color.r, color.g, color.b)
 		}
@@ -261,8 +262,10 @@ type ui struct {
 	zoom                    float64
 	panX, panY              float64
 	paused, quit            bool
-	copyMode, mouseReleased bool
 	pending                 []byte
+	terminalOSC             []byte
+	terminalOSCActive       bool
+	terminalOSCStarted      time.Time
 	scroll                  int
 	dragging                bool
 	dragX, dragY            int
@@ -277,7 +280,12 @@ type ui struct {
 	listSplitDragging                bool
 	dividerHover, dividerX, dividerY int
 	graphRendering                   bool
+	graphLayoutCombined              bool
 	terminalWidth, terminalHeight    int
+	lastFrame                        string
+	lastFrameWidth, lastFrameHeight  int
+
+	terminalBackground, terminalSelectedBackground rgb
 
 	listSelected     string
 	listOffset       int
@@ -323,11 +331,52 @@ func (u *ui) hit(x, y int) string {
 	return id
 }
 func (u *ui) input(data []byte) {
-	if len(data) > 0 {
-		u.followPending = nil
+	// A truncated reply must not capture subsequent keyboard input indefinitely.
+	if u.terminalOSCActive && time.Since(u.terminalOSCStarted) >= time.Second {
+		u.terminalOSCActive, u.terminalOSC = false, nil
 	}
 	u.pending = append(u.pending, data...)
 	for len(u.pending) > 0 {
+		if u.terminalOSCActive {
+			// Quit keys cannot occur in either requested color reply.
+			if u.pending[0] == 'q' || u.pending[0] == 3 {
+				u.terminalOSCActive, u.terminalOSC = false, nil
+				continue
+			}
+			end := 0
+			if u.pending[0] == 7 {
+				end = 1
+			} else if u.pending[0] == 27 {
+				if len(u.pending) == 1 {
+					return
+				}
+				if u.pending[1] != '\\' {
+					u.terminalOSCActive, u.terminalOSC = false, nil
+					continue // Preserve a new escape sequence after an interrupted reply.
+				}
+				end = 2
+			}
+			if end > 0 {
+				if len(u.terminalOSC) <= 128 {
+					u.terminalColorReply(string(u.terminalOSC))
+				}
+				u.terminalOSCActive, u.terminalOSC = false, nil
+				u.pending = u.pending[end:]
+				continue
+			}
+			// Keep draining oversized replies without retaining them or dispatching keys.
+			if len(u.terminalOSC) <= 128 {
+				u.terminalOSC = append(u.terminalOSC, u.pending[0])
+			}
+			u.pending = u.pending[1:]
+			continue
+		}
+		if len(u.pending) >= 2 && u.pending[0] == 27 && u.pending[1] == ']' {
+			u.terminalOSCActive = true
+			u.terminalOSCStarted = time.Now()
+			u.pending = u.pending[2:]
+			continue
+		}
 		if u.pending[0] == 27 {
 			if len(u.pending) == 1 {
 				return
@@ -342,8 +391,9 @@ func (u *ui) input(data []byte) {
 					return
 				}
 				var code, x, y int
+				u.followPending = nil
 				_, err := fmt.Sscanf(s[3:end], "%d;%d;%d", &code, &x, &y)
-				if err == nil && !u.copyMode {
+				if err == nil {
 					x--
 					y--
 					u.routeMouse(code, x, y, s[end] == 'm')
@@ -363,6 +413,7 @@ func (u *ui) input(data []byte) {
 					return
 				}
 				key := s[2 : end+1]
+				u.followPending = nil
 				u.keyboardDimensions()
 				if u.listMode || u.combined && !u.graphFocus {
 					u.listKey(key)
@@ -381,21 +432,15 @@ func (u *ui) input(data []byte) {
 				u.pending = u.pending[end+1:]
 				continue
 			}
+			u.followPending = nil
 			u.selected = ""
 			u.dragging = false
 			u.pending = u.pending[1:]
 			continue
 		}
+		u.followPending = nil
 		key := u.pending[0]
 		u.pending = u.pending[1:]
-		if key == 'm' {
-			u.copyMode = !u.copyMode
-			u.dragging, u.splitDragging, u.listSplitDragging = false, false, false
-			continue
-		}
-		if u.copyMode && key != 'q' && key != 3 {
-			continue
-		}
 		if key == '	' {
 			if u.combined {
 				u.combined, u.listMode = false, true
@@ -486,10 +531,19 @@ func (u *ui) cycleGraph(delta int) {
 	u.selected = nodes[index].id
 	u.scroll = 0
 }
-func (u *ui) render(w, h int, now time.Time) string {
-	if u.copyMode && u.mouseReleased {
+
+// Identical output clears native terminal selections even when nothing changed.
+func (u *ui) draw(w, h int, now time.Time) string {
+	w, h = max(1, w), max(1, h)
+	frame := u.render(w, h, now)
+	if frame == u.lastFrame && w == u.lastFrameWidth && h == u.lastFrameHeight {
 		return ""
 	}
+	u.lastFrame, u.lastFrameWidth, u.lastFrameHeight = frame, w, h
+	return frame
+}
+
+func (u *ui) render(w, h int, now time.Time) string {
 	w = max(1, w)
 	h = max(1, h)
 	u.width = w
@@ -504,17 +558,5 @@ func (u *ui) render(w, h int, now time.Time) string {
 	} else {
 		c = u.renderGraphCanvas(w, h, now)
 	}
-	controls := ""
-	if u.copyMode {
-		controls = "\x1b[?1003l\x1b[?1006l"
-		for x := 0; x < w; x++ {
-			c.put(x, h-1, ' ', gray)
-		}
-		c.text(0, h-1, "Select with mouse · copy: Ctrl+Shift+C / Cmd+C · m resume · q quit", white, w)
-		u.mouseReleased = true
-	} else if u.mouseReleased {
-		controls = "\x1b[?1003h\x1b[?1006h"
-		u.mouseReleased = false
-	}
-	return controls + c.ansi()
+	return c.ansi()
 }

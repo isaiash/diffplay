@@ -31,7 +31,7 @@ func TestModificationCountsWhiteAndZeroBlank(t *testing.T) {
 		c := u.renderListCanvas(width, 12, time.Now())
 		found := false
 		for x := 0; x < width; x++ {
-			v := c.cells[c.w+x]
+			v := c.cells[2*c.w+x]
 			if v.ch == '7' && v.color == white {
 				found = true
 			}
@@ -43,7 +43,7 @@ func TestModificationCountsWhiteAndZeroBlank(t *testing.T) {
 	c := u.renderListCanvas(100, 12, time.Now())
 	countAt := -1
 	for x := 0; x < 30; x++ {
-		v := c.cells[c.w+x]
+		v := c.cells[2*c.w+x]
 		if v.ch == '7' {
 			countAt = x
 			if v.color != white {
@@ -57,7 +57,7 @@ func TestModificationCountsWhiteAndZeroBlank(t *testing.T) {
 	u.history.entries["a"].modifications = 0
 	u.history.cached = nil
 	c = u.renderListCanvas(100, 12, time.Now())
-	if c.cells[c.w+countAt].ch != ' ' && c.cells[c.w+countAt].ch != 0 {
+	if c.cells[2*c.w+countAt].ch != ' ' && c.cells[2*c.w+countAt].ch != 0 {
 		t.Fatal("zero count must be blank")
 	}
 }
@@ -67,7 +67,7 @@ func TestNarrowModificationCountNeverLooksLikeDifferentCount(t *testing.T) {
 	u.recordChange("a", "modified", false, "", 2, 1, true, time.Time{})
 	u.history.entries["a"].modifications = 1234567
 	c := u.renderListCanvas(20, 8, time.Now())
-	if c.cells[20+2].ch != '…' || c.cells[20+3].ch != '+' || c.cells[20+4].ch != '2' {
+	if c.cells[40+2].ch != '…' || c.cells[40+3].ch != '+' || c.cells[40+4].ch != '2' {
 		t.Fatal("narrow count must signal truncation without overwriting added count")
 	}
 }
@@ -87,10 +87,10 @@ func TestCompactRemovedGapAndNarrowUnicodeRows(t *testing.T) {
 			}
 		}
 		if w == 100 {
-			line := lines[1]
+			line := lines[2]
 			removed := strings.Index(line, "-1")
 			name := strings.Index(line, "界")
-			if removed < 0 || name < 0 || name-(removed+2) > 3 {
+			if removed < 0 || name < 0 || name-(removed+2) > 20 {
 				t.Fatalf("excess removed padding: %q", line)
 			}
 		}

@@ -140,7 +140,7 @@ func (u *ui) listVisibleHeight(h int) int {
 	if u.combined {
 		footer = 0
 	}
-	return max(0, h-1-footer)
+	return max(0, h-2-footer)
 }
 func (u *ui) listMouse(code, x, y int, release bool) {
 	defer u.syncListSelection()
@@ -159,11 +159,11 @@ func (u *ui) listMouse(code, x, y int, release bool) {
 		u.listMove(delta)
 		return
 	}
-	if y < 1 || y >= 1+u.listVisibleHeight(u.height) || x >= u.listWidth(u.width) {
+	if y < 2 || y >= 2+u.listVisibleHeight(u.height) || x >= u.listWidth(u.width) {
 		return
 	}
 	rows := u.changeRows()
-	index := u.listOffset + y - 1
+	index := u.listOffset + y - 2
 	if index < 0 || index >= len(rows) {
 		return
 	}
@@ -229,6 +229,36 @@ func paintHistogram(c *canvas, center, y, width, count, maximum, direction int, 
 		}
 	}
 }
+func (u *ui) filePercentage(row *changeRow) string {
+	if row.dir {
+		return ""
+	}
+	n := u.graph.nodes[row.id]
+	if row.unknown || n == nil || !n.linesKnown || row.kind == "deleted" || n.lines == 0 && (row.added != 0 || row.removed != 0) {
+		return "?"
+	}
+	if n.lines == 0 {
+		return "0.00"
+	}
+	percent := (float64(row.added) + float64(row.removed)) / float64(n.lines) * 100
+	if percent > 0 && percent < .005 {
+		return "<.01"
+	}
+	decimals := 2
+	if percent >= 100 {
+		decimals = 0
+	} else if percent >= 10 {
+		decimals = 1
+	}
+	for ; decimals >= 0; decimals-- {
+		label := fmt.Sprintf("%.*f", decimals, percent)
+		if len(label) <= 4 {
+			return label
+		}
+	}
+	return ">999"
+}
+
 func (u *ui) renderList(w, h int, now time.Time) string {
 	return u.renderListCanvas(w, h, now).ansi()
 }
@@ -237,30 +267,63 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 	treeWidth := u.listWidth(w)
 	u.renderSessionHeader(c)
 	countWidth := max(1, min(9, (treeWidth-10)/4))
-	// Reserve a third of the pane for paths before sizing the symmetric meter.
+	hitsWidth := 1
+	if treeWidth >= 40 {
+		hitsWidth = 4
+		countWidth = 5
+	}
+	removedWidth := 0
+	var measureCounts func(*changeRow)
+	measureCounts = func(r *changeRow) {
+		removedWidth = max(removedWidth, textWidth(signedCount("-", r.removed, r.unknown)))
+		if treeWidth >= 40 {
+			countWidth = max(countWidth, min(9, textWidth(signedCount("+", r.added, r.unknown))))
+		}
+		for _, child := range r.children {
+			measureCounts(child)
+		}
+	}
+	for _, child := range u.history.tree().children {
+		measureCounts(child)
+	}
+	addedX := 2 + hitsWidth
+	if treeWidth >= 40 {
+		addedX++
+	}
+	// Reserve path space before sizing the symmetric meter.
 	barSide := max(0, min(4, (treeWidth-treeWidth/3-2*countWidth-8)/2))
-	barX := 3 + countWidth + 1
+	if treeWidth >= 40 {
+		barSide = max(0, min(4, (treeWidth-max(20, treeWidth/4)-hitsWidth-countWidth-7-4-9)/2))
+	}
+	barX := addedX + countWidth + 1
 	barWidth := 0
 	if barSide > 0 {
 		barWidth = 2*barSide + 1
 	}
 	removedX := barX + barWidth + 1
-	removedWidth := 0
-	var measureRemoved func(*changeRow)
-	measureRemoved = func(r *changeRow) {
-		removedWidth = max(removedWidth, textWidth(signedCount("-", r.removed, r.unknown)))
-		for _, child := range r.children {
-			measureRemoved(child)
-		}
+	if treeWidth >= 40 {
+		removedWidth = max(7, min(9, removedWidth))
+	} else {
+		removedWidth = min(countWidth, removedWidth)
 	}
-	for _, child := range u.history.tree().children {
-		measureRemoved(child)
-	}
-	treeX := removedX + min(countWidth, removedWidth) + 1
+	treeX := removedX + removedWidth + 1
 	if treeWidth < 20 {
 		treeX = 0
 		barSide = 0
 	}
+	percentX := treeX
+	percentWidth := 0
+	if treeWidth >= 40 {
+		percentWidth = 4
+		treeX += percentWidth + 1
+	}
+	if treeWidth >= 20 {
+		c.text(2, 1, "HITS", gray, hitsWidth)
+		c.text(addedX, 1, "ADDED", gray, countWidth)
+		c.text(removedX, 1, "REMOVED", gray, removedWidth)
+		c.text(percentX, 1, "%", gray, percentWidth)
+	}
+	c.text(treeX, 1, headerPath(path.Base(u.root), treeWidth-treeX), white, treeWidth-treeX)
 	rows := u.changeRows()
 	visible := u.listVisibleHeight(h)
 	selected := 0
@@ -278,7 +341,9 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 	}
 	u.listOffset = max(0, min(u.listOffset, max(0, len(rows)-visible)))
 	if len(rows) == 0 {
-		c.text(2, 1, "No changes observed since startup.", gray, w-4)
+		if visible > 0 {
+			c.text(2, 2, "No changes observed since startup.", gray, treeWidth-4)
+		}
 	}
 	// Every file is normalized against the largest individual file edit in
 	// its repository, whether or not that file is currently visible. Collapsed
@@ -292,7 +357,7 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 	}
 	for i := u.listOffset; i < len(rows) && i-u.listOffset < visible; i++ {
 		row := rows[i]
-		y := 1 + i - u.listOffset
+		y := 2 + i - u.listOffset
 		color := green
 		if row.fresh {
 			color = blue
@@ -300,18 +365,19 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 		addedLabel := signedCount("+", row.added, row.unknown)
 		if treeWidth >= 20 {
 			if row.modifications > 0 {
-				spare := max(0, countWidth-textWidth(addedLabel)+1)
+				spare := hitsWidth
 				label := fmt.Sprint(row.modifications)
 				if len(label) > spare && spare > 0 {
 					label = label[:spare-1] + "…"
 				}
 				c.text(2, y, label, white, spare)
 			}
-			c.text(3+max(0, countWidth-textWidth(addedLabel)), y, addedLabel, color, min(countWidth, textWidth(addedLabel)))
+			c.text(addedX+max(0, countWidth-textWidth(addedLabel)), y, addedLabel, color, min(countWidth, textWidth(addedLabel)))
 			// Align both counts toward the meter: one padding cell on either side.
-			c.text(removedX, y, fmt.Sprintf("%-*s", countWidth, signedCount("-", row.removed, row.unknown)), red, countWidth)
+			c.text(removedX, y, signedCount("-", row.removed, row.unknown), red, removedWidth)
 		}
 
+		c.text(percentX, y, u.filePercentage(row), gray, percentWidth)
 		prefix := ""
 		if row.depth > 1 {
 			prefix = strings.Repeat("│ ", row.depth-2) + "├─ "
@@ -349,8 +415,10 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 				flashColor = blue
 			}
 		}
-		if !row.changed.IsZero() && age >= 0 && age < burstDuration {
-			strength = 1 - float64(age)/float64(burstDuration)
+		if !row.changed.IsZero() {
+			strength = listBurstStrength(age)
+		}
+		if strength > 0 {
 			c.put(1, y, '✦', blend(background, flashColor, strength))
 		}
 		nameColor := blend(gray, white, strength)
@@ -377,7 +445,7 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 			c.put(0, y, '›', white)
 			baseBG = selectedBackground
 		}
-		rowBG := blend(baseBG, blend(flashColor, white, 0.45), strength)
+		rowBG := u.listBurstBackground(baseBG, flashColor, strength)
 		for x := 0; x < min(treeWidth, w); x++ {
 			c.cells[y*w+x].bg = rowBG
 		}
@@ -397,10 +465,10 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 		}
 	}
 	if treeWidth < w {
-		for y := 1; y < 1+visible; y++ {
+		for y := 1; y < 2+visible; y++ {
 			c.put(treeWidth, y, '│', gray)
 		}
-		if u.dividerHover == 1 && u.dividerY >= 1 && u.dividerY < 1+visible {
+		if u.dividerHover == 1 && u.dividerY >= 1 && u.dividerY < 2+visible {
 			c.put(treeWidth, u.dividerY, '↔', white)
 		}
 		if focus != nil {
@@ -420,7 +488,7 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 				if focus.diff == "" {
 					lines = []string{"No text diff available."}
 				}
-				n := max(0, visible-3)
+				n := max(0, visible-2)
 				u.scroll = min(u.scroll, max(0, len(lines)-n))
 				for i := 0; i < n && i+u.scroll < len(lines); i++ {
 					line := lines[i+u.scroll]
@@ -439,7 +507,7 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 		}
 	}
 	if !u.combined {
-		c.text(1, h-1, "q quit · Tab view · ↑↓ select · ←→ tree · wheel · J/K diff · m select/copy", gray, w-2)
+		c.text(1, h-1, "q quit · Tab view · ↑↓ select · ←→ tree · wheel · J/K diff · Shift+drag select · terminal copy shortcut", gray, w-2)
 	}
 	return c
 }

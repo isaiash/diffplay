@@ -18,7 +18,7 @@ class SmokeEnvironmentTests(unittest.TestCase):
             tools.mkdir()
             for name, body in {
                 "go": "exit 0\n",
-                "python3": 'test -d "$TMPDIR" || exit 1\ncase "$TMPDIR" in "$HOME"/*) ;; *) exit 2 ;; esac\nprintf "%s\\n" "$1" >> "$SMOKE_LOG"\n',
+                "python3": 'test -d "$TMPDIR" || exit 1\ncase "$TMPDIR" in "$HOME"/*) ;; *) exit 2 ;; esac\nif [ "$1" = "-u" ]; then shift; fi\nprintf "%s\\n" "$1" >> "$SMOKE_LOG"\n',
             }.items():
                 tool = tools / name
                 tool.write_text("#!/bin/sh\n" + body)
@@ -28,7 +28,10 @@ class SmokeEnvironmentTests(unittest.TestCase):
             env.pop("TMPDIR", None)
             result = subprocess.run(["make", "smoke"], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual(len(log.read_text().splitlines()), 9)
+            self.assertEqual(log.read_text().splitlines(), [
+                f"scripts/{name}_smoke.py" for name in
+                ("unified", "terminal", "list", "git", "hierarchy", "workspace", "activity", "selection", "contrast", "burst")
+            ])
 
 
 if __name__ == "__main__":

@@ -5,9 +5,8 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-import termios
 
-from list_smoke import GREEN, WHITE, Terminal, braille_cells, colored_cells, divider, header_prefix, mode
+from list_smoke import GREEN, RED, WHITE, Terminal, assert_terminal_restored, braille_cells, colored_cells, divider, header_prefix, mode
 
 
 def geometry(rows):
@@ -35,10 +34,12 @@ def full_circle_selection(binary, parent):
     root = parent / "single-cell-repo"
     root.mkdir()
     subprocess.check_call(["git", "-C", str(root), "init", "-q"])
-    (root / "only.txt").write_text("old\n" * 10)
+    (root / "only.txt").write_text("old\n" * 100)
+    (root / "quiet.txt").write_text("unchanged\n" * 200)
+    (root / "empty.txt").write_text("")
     subprocess.check_call(["git", "-C", str(root), "add", "."])
     subprocess.check_call(["git", "-C", str(root), "-c", "user.name=PTY Test", "-c", "user.email=pty@example.invalid", "commit", "-qm", "baseline"])
-    (root / "only.txt").write_text("new\n" * 20)
+    (root / "only.txt").write_text("old\n" * 80 + "new\n" * 20)
     terminal = Terminal(binary, root, view=None)
     try:
         terminal.resize(160, 48)
@@ -48,12 +49,16 @@ def full_circle_selection(binary, parent):
         midpoint = geometry(rows)
         before = {(x, y): (char, color) for x, y, char, color in braille_cells(raw) if y > midpoint}
         assert before and any(color != WHITE for _, color in before.values())
+        assert {color for _, color in before.values()} == {GREEN, RED}, "split disks must show edit colors only, without gray unchanged coverage"
         y = next(y for y, row in enumerate(rows[1:midpoint], 1) if "only.txt" in row)
         terminal.send(f"\x1b[<35;30;{y + 1}M".encode())
-        raw, rows = terminal.frame(lambda raw, rows: selected_row(rows, "only.txt", midpoint))
+        raw, rows = terminal.frame(lambda raw, rows: selected_row(rows, "only.txt", midpoint)
+                                   and all(color == WHITE for _, y, _, color in braille_cells(raw) if y > midpoint))
         after = {(x, y): (char, color) for x, y, char, color in braille_cells(raw) if y > midpoint}
         assert set(before) == set(after), "selection changed circle geometry"
         assert all(after[pos] == (char, WHITE) for pos, (char, _) in before.items()), "entire selected circle must be white with identical masks"
+        assert "quiet.txt" not in raw and "empty.txt" not in raw
+        print("PASS: split graph contains only the changed file, with edit-only layers and an identical white selection mask")
         preview = [row[80:] for row in rows[1:midpoint]]
         terminal.send(b"JJJJ")
         terminal.frame(lambda raw, rows: [row[80:] for row in rows[1:midpoint]] != preview)
@@ -62,7 +67,8 @@ def full_circle_selection(binary, parent):
         print("PASS: upper diff preview scrolls and returns with J/K")
         terminal.send(b"q")
         terminal.proc.wait(timeout=5)
-        assert terminal.proc.returncode == 0 and termios.tcgetattr(terminal.slave) == terminal.before
+        assert terminal.proc.returncode == 0, f"selection fixture exited with status {terminal.proc.returncode}"
+        assert_terminal_restored(terminal.slave, terminal.before)
         print(f"PASS: all {len(before)} glyphs of the isolated selected circle turn white without mask or position changes")
     finally:
         terminal.close()
@@ -96,7 +102,7 @@ def main():
             assert "nested/" in raw and "active/nested/" not in "\n".join(rows[midpoint:])
             assert "✦" not in raw and "�" not in raw
             totals = header_prefix(rows[0])
-            assert totals == "repo +5 -2 23.08% new lines"
+            assert totals == "+5 -2 23.08% new lines"
             assert rows[0].endswith("13 total lines") and str(root) not in rows[0]
             print("PASS: default changes/diff top, Hex bottom, exact half split and quiet startup")
 
@@ -125,7 +131,7 @@ def main():
                 for x, y in points:
                     terminal.send(f"\x1b[<35;{x + 1};{y + 1}M".encode())
                     try:
-                        raw, rows = terminal.frame(lambda raw, rows: name in "\n".join(rows[:midpoint]) and (selected_row(rows, name, midpoint) if name == "other.txt" else "unchanged" in "\n".join(rows[:midpoint])), timeout=.4)
+                        raw, rows = terminal.frame(lambda raw, rows: selected_row(rows, name, midpoint), timeout=.4)
                         return
                     except AssertionError:
                         continue
@@ -135,14 +141,11 @@ def main():
             assert "+new other" in "\n".join(rows[:midpoint])
             assert header_prefix(rows[0]) == totals
             print("PASS: lower graph hover synchronizes changed list row and upper diff")
-            hover_file("context.txt", None)
-            assert header_prefix(rows[0]) == totals, "context inspection must not alter history totals"
-            assert selected_row(rows, "context.txt", midpoint), "context inspection must temporarily reveal its list row"
             terminal.send(f"\x1b[<35;1;{midpoint + 3}M".encode())
-            raw, rows = terminal.frame(lambda raw, rows: "active/nested/context.txt" not in "\n".join(rows[:midpoint]))
+            raw, rows = terminal.frame(lambda raw, rows: not any(y > midpoint and color == WHITE for _, y, _, color in braille_cells(raw)))
             assert header_prefix(rows[0]) == totals
-            assert not selected_row(rows, "context.txt", midpoint), "temporary context row must disappear when deselected"
-            print("PASS: context hover is temporary and does not enter list/history totals")
+            assert "context.txt" not in raw and "root-context.txt" not in raw
+            print("PASS: split graph omits unchanged files without changing history totals")
 
             # Clear hover before exact raster comparisons: halos are selection UI.
             original = graph_glyphs(rows, midpoint)
@@ -184,7 +187,8 @@ def main():
             assert header_prefix(rows[0]) == totals
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
-            assert terminal.proc.returncode == 0 and termios.tcgetattr(terminal.slave) == terminal.before
+            assert terminal.proc.returncode == 0, f"combined view exited with status {terminal.proc.returncode}"
+            assert_terminal_restored(terminal.slave, terminal.before)
             print("PASS: Tab combined/list/graph cycle preserves history; clean exit restores terminal")
         finally:
             terminal.close()

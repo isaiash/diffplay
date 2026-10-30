@@ -191,7 +191,7 @@ func TestCombinedContextSelectionIsTemporaryPresentationOnly(t *testing.T) {
 func TestChromeStartsWithSessionTotalsAndOneFooter(t *testing.T) {
 	u := combinedFixture()
 	frame := strings.Split(plainList(u.render(120, 40, time.Unix(200, 0))), "\r\n")
-	if !strings.HasPrefix(frame[0], "repo ") || !strings.HasSuffix(frame[0], "total lines") {
+	if !strings.HasPrefix(frame[0], "+210 -20 ") || !strings.HasSuffix(frame[0], "total lines") {
 		t.Fatalf("first row: %q", frame[0])
 	}
 	for i, line := range frame {
@@ -222,7 +222,7 @@ func TestCombinedDividerDragCaptureClampAndResize(t *testing.T) {
 	}
 	u.input([]byte("\x1b[<32;3;38M"))
 	frame = strings.Split(plainList(u.render(100, 40, now)), "\r\n")
-	if strings.Count(frame[37], "─") >= 90 {
+	if u.splitTop(40) != 35 || !u.splitDragging {
 		t.Fatal("divider was not clamped")
 	}
 	u.input([]byte("\x1b[<32;3;16M\x1b[<0;3;16m"))
@@ -275,7 +275,7 @@ func TestDividerClampAndPointerRoutingAfterMove(t *testing.T) {
 	}
 	u.input([]byte("\x1b[<32;1;13M\x1b[<0;1;13m"))
 	u.render(100, 40, now)
-	u.input([]byte("\x1b[<35;5;3M"))
+	u.input([]byte("\x1b[<35;5;4M"))
 	if u.listSelected != "src/file00" {
 		t.Fatalf("list hover after divider move: %q", u.listSelected)
 	}
@@ -297,10 +297,10 @@ func TestFullListFirstRowsAndFooter(t *testing.T) {
 	u.combined = false
 	u.listMode = true
 	frame := strings.Split(plainList(u.render(100, 20, time.Unix(200, 0))), "\r\n")
-	if !strings.HasPrefix(frame[0], "repo ") || !strings.HasSuffix(frame[0], "total lines") {
+	if !strings.HasPrefix(frame[0], "+210 -20 ") || !strings.HasSuffix(frame[0], "total lines") {
 		t.Fatalf("first row: %q", frame[0])
 	}
-	if !strings.Contains(frame[1], "src/") {
+	if !strings.Contains(frame[2], "src/") {
 		t.Fatalf("first change missing: %q", frame[1])
 	}
 	if !strings.Contains(frame[19], "Tab") {

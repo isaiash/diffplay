@@ -98,12 +98,8 @@ func TestSessionHeaderEmptyAndRedOnly(t *testing.T) {
 	}
 	u.recordChange("x", "deleted", false, "", 0, 5, true, time.Time{})
 	c = u.renderListCanvas(40, 5, time.Time{})
-	for x, cell := range c.cells[:c.w] {
-		want := rgb{}
-		if x < 2 {
-			want = red
-		}
-		if cell.bg != want {
+	for _, cell := range c.cells[:c.w] {
+		if cell.bg != red {
 			t.Fatalf("red-only background: %+v", cell.bg)
 		}
 	}
@@ -117,9 +113,9 @@ func TestSessionHeaderLargestRemainder(t *testing.T) {
 	c := u.renderListCanvas(10, 5, time.Time{})
 	for x, cell := range c.cells[:c.w] {
 		want := red
-		if x < 3 {
+		if x < 4 {
 			want = blue
-		} else if x < 5 {
+		} else if x < 7 {
 			want = green
 		}
 		if cell.bg != want {
@@ -141,13 +137,13 @@ func TestSessionHeaderSplitAndStandaloneMatch(t *testing.T) {
 	}
 }
 
-func TestSessionHeaderUsesBasenameInsteadOfLongUnicodePath(t *testing.T) {
+func TestSessionHeaderOmitsRepositoryName(t *testing.T) {
 	u := newUI(newGraph(), "/very/long/path/项目/目录/file.go")
 	u.recordChange("x", "modified", false, "", 3, 2, true, time.Time{})
 	c := u.renderListCanvas(48, 5, time.Time{})
 	line := headerText(c)
-	if !strings.HasPrefix(line, "file.go +3 -2 ?% new lines") || !strings.HasSuffix(line, "? total lines") {
-		t.Fatalf("must show basename, edits, percentage and right-aligned repository total: %q", line)
+	if !strings.HasPrefix(line, "+3 -2 ?% new lines") || strings.Contains(line, "file.go") || !strings.HasSuffix(line, "? total lines") {
+		t.Fatalf("must omit repository name but retain edits, percentage and right-aligned repository total: %q", line)
 	}
 	for x, cell := range c.cells[:c.w] {
 		if runeWidth(cell.ch) == 2 && (x+1 >= c.w || c.cells[x+1].ch != 0) {
@@ -174,14 +170,16 @@ func TestSessionHeaderColorsUseLeafEditsOnce(t *testing.T) {
 	u.recordChange("folder/existing", "modified", false, "", 3, 4, true, time.Time{})
 	c := u.renderListCanvas(100, 5, time.Time{})
 	for x := 0; x < c.w; x++ {
-		want := rgb{}
-		if x < 50 {
-			want = red
+		want := red
+		if x < 20 {
+			want = blue
+		} else if x < 50 {
+			want = green
 		}
 		if got := c.cells[x].bg; got != want {
 			t.Fatalf("cell %d background = %+v, want %+v", x, got, want)
 		}
-		if x < 50 && c.cells[x].color != headerInk {
+		if c.cells[x].color != headerInk {
 			t.Fatalf("cell %d foreground must contrast with the bright background", x)
 		}
 	}
@@ -194,7 +192,7 @@ func TestSessionHeaderAlignsRepositoryTotalWithoutSeparator(t *testing.T) {
 	u := newUI(newGraph(), "/repo")
 	u.recordChange("x", "modified", false, "", 3, 2, true, time.Time{})
 	line := headerText(u.renderListCanvas(80, 5, time.Time{}))
-	if !strings.Contains(line, "repo +3 -2") || strings.Contains(line, "|") || !strings.HasSuffix(line, "? total lines") {
-		t.Fatalf("header must align repository name left and total right without a pipe: %q", line)
+	if !strings.HasPrefix(line, "+3 -2") || strings.Contains(line, "|") || !strings.HasSuffix(line, "? total lines") {
+		t.Fatalf("header must align metrics left and total right without a pipe: %q", line)
 	}
 }

@@ -27,7 +27,7 @@ func TestTabSwitchesBetweenGraphAndChangeList(t *testing.T) {
 		t.Fatal("Tab must open changes view")
 	}
 	frame := u.render(100, 25, time.Now())
-	for _, want := range []string{"repo ", "+14", "-9", "src", "small.go", "new.md", "deleted.go"} {
+	for _, want := range []string{"repo", "+14", "-9", "src", "small.go", "new.md", "deleted.go"} {
 		if !strings.Contains(frame, want) {
 			t.Errorf("missing %q", want)
 		}
@@ -71,16 +71,16 @@ func TestTreeKeyboardMouseAndStableSelection(t *testing.T) {
 	if u.listSelected != "docs" {
 		t.Fatal("live sorting must not move focus to a different path")
 	}
-	// The newly highest-ranked src directory is the first visible row (row 2).
-	u.input([]byte("\x1b[<35;20;2M"))
+	// The newly highest-ranked src directory is the first visible row (row 3).
+	u.input([]byte("\x1b[<35;20;3M"))
 	if u.listSelected != "src" {
 		t.Fatalf("hover must select row, got %q", u.listSelected)
 	}
-	u.input([]byte("\x1b[<0;20;2M"))
+	u.input([]byte("\x1b[<0;20;3M"))
 	if u.open["src"] {
 		t.Fatal("mouse click must collapse folder")
 	}
-	u.input([]byte("\x1b[<0;20;2M"))
+	u.input([]byte("\x1b[<0;20;3M"))
 	if !u.open["src"] {
 		t.Fatal("mouse click must reopen folder")
 	}

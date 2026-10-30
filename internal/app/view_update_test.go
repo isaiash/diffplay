@@ -7,20 +7,20 @@ import (
 	"time"
 )
 
-func TestCompactListHasNoColumnHeaderRow(t *testing.T) {
+func TestCompactListHasColumnTitleRow(t *testing.T) {
 	u := newUI(newGraph(), "/repo")
 	u.recordChange("only.txt", "modified", false, "", 8, 4, true, time.Now())
 	frame := plainList(u.renderList(100, 24, time.Now()))
-	for _, label := range []string{"ADDED", "REMOVED", "CHANGED PATHS"} {
-		if strings.Contains(frame, label) {
-			t.Fatalf("unexpected section heading %s", label)
+	for _, label := range []string{"HITS", "ADDED", "REMOVED", "%"} {
+		if !strings.Contains(frame, label) {
+			t.Fatalf("missing column title %s", label)
 		}
 	}
 	rows := strings.Split(frame, "\r\n")
-	if !strings.Contains(rows[1], "only.txt") {
-		t.Fatal("first file must occupy reclaimed header row")
+	if !strings.Contains(rows[2], "only.txt") {
+		t.Fatal("first file must follow column title row")
 	}
-	row := []rune(rows[1])
+	row := []rune(rows[2])
 	center := -1
 	for i, r := range row {
 		if r == '│' {

@@ -29,9 +29,9 @@ func TestHistogramScaleDoesNotChangeWhenScrolling(t *testing.T) {
 	u.recordChange("target", "modified", false, "", 25, 50, true, time.Time{})
 	u.recordChange("last", "modified", false, "", 10, 0, true, time.Time{})
 	u.listSelected = "dominant"
-	before := histogramCells(t, u.renderListCanvas(100, 4, time.Time{}), "target")
+	before := histogramCells(t, u.renderListCanvas(100, 5, time.Time{}), "target")
 	u.listMove(2)
-	after := histogramCells(t, u.renderListCanvas(100, 4, time.Time{}), "target")
+	after := histogramCells(t, u.renderListCanvas(100, 5, time.Time{}), "target")
 	for i := range before {
 		if before[i] != after[i] {
 			t.Fatalf("target meter changed when dominant scrolled out at cell %d: before=%+v after=%+v", i, before, after)
@@ -90,9 +90,9 @@ func TestHistogramScalesAreIndependentPerRepository(t *testing.T) {
 	}
 	u.listOffset = 0
 	u.listSelected = "repo-1/large-file"
-	before := histogramCells(t, u.renderListCanvas(100, 5, time.Time{}), "quarter")
+	before := histogramCells(t, u.renderListCanvas(100, 6, time.Time{}), "quarter")
 	u.listSelected = "repo-2/small-file"
-	after := histogramCells(t, u.renderListCanvas(100, 5, time.Time{}), "quarter")
+	after := histogramCells(t, u.renderListCanvas(100, 6, time.Time{}), "quarter")
 	for i := range before {
 		if before[i] != after[i] {
 			t.Fatalf("repository meter changed when peak scrolled away: before=%+v after=%+v", before, after)

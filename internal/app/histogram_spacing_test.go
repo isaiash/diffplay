@@ -7,11 +7,11 @@ import (
 )
 
 func TestHistogramHasEqualSpacingToBothCounts(t *testing.T) {
-	for _, width := range []int{40, 60, 100, 160} {
+	for _, width := range []int{60, 100, 160} {
 		u := newUI(newGraph(), "/repo")
 		u.recordChange("equal.txt", "modified", false, "", 12, 12, true, time.Now().Add(-time.Minute))
 		rows := strings.Split(plainList(u.renderList(width, 24, time.Now())), "\r\n")
-		row := []rune(rows[1])
+		row := []rune(rows[2])
 		center := -1
 		for i, r := range row {
 			if r == '│' {
@@ -40,7 +40,7 @@ func TestHistogramHasEqualSpacingToBothCounts(t *testing.T) {
 			right++
 		}
 		if leftGap != rightGap || leftGap != 1 {
-			t.Errorf("width %d: unequal spacing: added=%d removed=%d, %q", width, leftGap, rightGap, rows[1])
+			t.Errorf("width %d: unequal spacing: added=%d removed=%d, %q", width, leftGap, rightGap, rows[2])
 		}
 		if right >= len(row) || row[right] != '-' {
 			t.Errorf("width %d: removed count should follow its single-cell gap", width)

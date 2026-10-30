@@ -6,9 +6,8 @@ import select
 import subprocess
 import sys
 import tempfile
-import termios
 
-from list_smoke import Terminal, header_prefix, mode
+from list_smoke import Terminal, assert_terminal_restored, header_prefix, mode
 
 
 def make_repo(root, count):
@@ -49,7 +48,7 @@ def main():
             assert "2 repositories found" in raw and "hidden-repository" not in raw
             terminal.send(b"\t\x1b[B\t\r")
             raw, rows = terminal.frame(lambda raw, rows: mode(rows, "list") and "alpha/" in raw and "beta/" in raw and "+112" in header_prefix(rows[0]))
-            assert header_prefix(rows[0]) == f"{workspace.name} +112 100.00% new lines"
+            assert header_prefix(rows[0]) == "+112 100.00% new lines"
             assert rows[0].endswith("112 total lines") and str(workspace) not in rows[0]
             assert "✦" not in raw
             assert "hidden.cache" not in raw
@@ -58,7 +57,7 @@ def main():
             print("PASS: discovery and multi-selection show repository groups and independent histogram scales")
             (workspace / "alpha/same.txt").write_text("new\n" * 101)
             raw, rows = terminal.frame(lambda raw, rows: "✦" in raw and "+113" in header_prefix(rows[0]))
-            assert header_prefix(rows[0]) == f"{workspace.name} +113 100.00% new lines"
+            assert header_prefix(rows[0]) == "+113 100.00% new lines"
             assert rows[0].endswith("113 total lines")
             same_rows = [row for row in rows[1:-1] if "same.txt" in row]
             assert len(same_rows) == 2 and sum("✦" in row for row in same_rows) == 1, same_rows
@@ -77,11 +76,7 @@ def main():
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
             check_exit(terminal, "selected workspace")
-            if sys.platform == "darwin":
-                # XNU reprocesses PENDIN on a read readiness check.
-                select.select([terminal.slave], [], [], 0)
-            after = termios.tcgetattr(terminal.slave)
-            assert after == terminal.before, f"selected workspace terminal state: before={terminal.before!r}, after={after!r}"
+            assert_terminal_restored(terminal.slave, terminal.before, "selected workspace terminal")
             print("PASS: selected repositories survive resizing/view changes and clean exit")
         finally:
             terminal.close()
@@ -95,6 +90,7 @@ def main():
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
             check_exit(terminal, "focused workspace")
+            assert_terminal_restored(terminal.slave, terminal.before, "focused workspace terminal")
             print("PASS: Enter without checks selects only the focused repository")
         finally:
             terminal.close()
@@ -104,11 +100,7 @@ def main():
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
             check_exit(terminal, "picker cancellation")
-            if sys.platform == "darwin":
-                # XNU reprocesses PENDIN on a read readiness check.
-                select.select([terminal.slave], [], [], 0)
-            after = termios.tcgetattr(terminal.slave)
-            assert after == terminal.before, f"picker terminal state: before={terminal.before!r}, after={after!r}"
+            assert_terminal_restored(terminal.slave, terminal.before, "picker terminal")
             print("PASS: picker cancellation restores terminal state")
         finally:
             terminal.close()

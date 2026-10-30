@@ -46,7 +46,7 @@ func (u *ui) renderCombined(w, h int, now time.Time) *canvas {
 		graph := u.renderGraphCanvas(w, graphHeight, now)
 		copy(c.cells[(top+1)*w:], graph.cells)
 	}
-	c.text(1, h-1, "q quit · Tab view · ↑↓ · ←→ tree · drag split/pan · wheel · J/K diff · m copy", gray, w-2)
+	c.text(1, h-1, "q quit · Tab view · ↑↓ · ←→ tree · drag split/pan · wheel · J/K diff · Shift+drag select · terminal copy shortcut", gray, w-2)
 	return c
 }
 func (u *ui) keyboardDimensions() {

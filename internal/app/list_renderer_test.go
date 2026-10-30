@@ -32,8 +32,8 @@ func TestListHistogramShrinksWithTerminalAndPreservesPreview(t *testing.T) {
 	for _, width := range []int{20, 30, 40, 60, 100, 120, 180} {
 		frame := plainList(u.renderList(width, 24, now))
 		lines := strings.Split(frame, "\r\n")
-		row := lines[1]
-		if !strings.Contains(row, "│") || !strings.Contains(row, "x") {
+		row := lines[2]
+		if !strings.Contains(row, "x") || width >= 60 && !strings.Contains(row, "│") {
 			t.Errorf("width %d lost histogram or path: %q", width, row)
 		}
 		for _, line := range lines {
@@ -53,7 +53,7 @@ func TestListDivergingHistogram(t *testing.T) {
 	u.recordChange("folder/big", "modified", false, "", 16, 8, true, now)
 	u.recordChange("small", "created", false, "", 1, 1, true, now)
 	lines := strings.Split(plainList(u.renderList(100, 24, now)), "\r\n")
-	folder, big, small := []rune(lines[1]), []rune(lines[2]), []rune(lines[3])
+	folder, big, small := []rune(lines[2]), []rune(lines[3]), []rune(lines[4])
 	center := -1
 	for i, r := range big {
 		if r == '│' {
@@ -75,7 +75,7 @@ func TestListDivergingHistogram(t *testing.T) {
 	}
 	u.listKey("c")
 	lines = strings.Split(plainList(u.renderList(100, 24, now)), "\r\n")
-	if !strings.Contains(lines[1], "█│█") {
+	if !strings.Contains(lines[2], "█│█") {
 		t.Fatalf("collapsed folder must show aggregate: %q", lines[3])
 	}
 }
@@ -114,10 +114,17 @@ func TestListFlashUsesBrightEventTintEvenWhenSelected(t *testing.T) {
 			if got := cellBeforeName(t, frame, "target").bg; got != want {
 				t.Fatalf("selected flash = %+v, want theme tint %+v", got, want)
 			}
-			middle := cellBeforeName(t, u.renderListCanvas(100, 24, now.Add(burstDuration/2)), "target").bg
-			stale := cellBeforeName(t, u.renderListCanvas(100, 24, now.Add(burstDuration)), "target").bg
-			if middle != want || stale != selectedBackground {
+			middle := cellBeforeName(t, u.renderListCanvas(100, 24, now.Add(time.Second/2)), "target").bg
+			stale := cellBeforeName(t, u.renderListCanvas(100, 24, now.Add(time.Second)), "target").bg
+			if middle == want || middle == selectedBackground || stale != selectedBackground {
 				t.Fatalf("flash did not return to theme selection: %+v %+v %+v", want, middle, stale)
+			}
+			steps := make(map[rgb]bool)
+			for elapsed := 100 * time.Millisecond; elapsed < time.Second; elapsed += 100 * time.Millisecond {
+				steps[cellBeforeName(t, u.renderListCanvas(100, 24, now.Add(elapsed)), "target").bg] = true
+			}
+			if len(steps) < 5 {
+				t.Fatalf("background must interpolate through RGB values, got %d steps", len(steps))
 			}
 		})
 	}
@@ -170,7 +177,7 @@ func TestListOmitsRootAndKeepsFocusVisible(t *testing.T) {
 	}
 	frame := plainList(u.renderList(100, 25, time.Now()))
 	lines := strings.Split(frame, "\r\n")
-	if strings.Contains(lines[1], "├─") || strings.Contains(lines[1], "repo/") {
+	if strings.Contains(lines[2], "├─") || strings.Contains(lines[2], "repo/") {
 		t.Fatalf("extra root trunk: %q", lines[3])
 	}
 }
