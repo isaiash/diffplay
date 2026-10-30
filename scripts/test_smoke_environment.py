@@ -30,7 +30,7 @@ class SmokeEnvironmentTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(log.read_text().splitlines(), [
                 f"scripts/{name}_smoke.py" for name in
-                ("unified", "terminal", "list", "git", "hierarchy", "workspace", "activity", "selection", "contrast", "burst")
+                ("unified", "terminal", "list", "git", "hierarchy", "workspace", "activity", "selection", "contrast", "burst", "depth")
             ])
 
 

@@ -39,8 +39,8 @@ def main():
         listing = json.loads(subprocess.check_output([binary, "--snapshot"], cwd=root))
         names = {entry["path"] for entry in listing}
         assert ".hidden" in names and "one/two/three/four/level-five.txt" in names
-        assert "one/two/three/four/five/level-six.txt" not in names
-        print("PASS: current-directory root, hidden files, depth-five traversal")
+        assert "one/two/three/four/five/level-six.txt" in names
+        print("PASS: current-directory root, hidden files, full-depth Git traversal")
 
         master, slave = pty.openpty()
         before = termios.tcgetattr(slave)

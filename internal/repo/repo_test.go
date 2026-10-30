@@ -313,7 +313,7 @@ func TestInitialChangesScopeDepthAndFailure(t *testing.T) {
 	if len(events) != 1 || events[0].Path != "top" || events[0].Kind != "deleted" {
 		t.Fatalf("scoped shallow deletions: %+v", events)
 	}
-	s, err = r.Scan(99)
+	s, err = r.Scan(5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +322,7 @@ func TestInitialChangesScopeDepthAndFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(events) != 2 {
-		t.Fatalf("depth five cap: %+v", events)
+		t.Fatalf("explicit depth five bound: %+v", events)
 	}
 	allowed, err := r.FilterPaths([]string{"top", "deep/file"})
 	if err != nil || !allowed["top"] || !allowed["deep/file"] {

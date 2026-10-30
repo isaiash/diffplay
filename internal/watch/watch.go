@@ -146,8 +146,12 @@ func capture(path string, e *Entry) error {
 	return nil
 }
 
-// Scan includes root (depth zero) and descendants up to maxDepth, capped at five.
-// Negative depths mean root only. Paths are relative and slash-separated,
+// AllDepth includes descendants without a depth limit.
+const AllDepth = -1
+
+// Scan includes root (depth zero) and descendants up to maxDepth.
+// AllDepth removes the limit; other negative depths mean root only.
+// Paths are relative and slash-separated,
 // including hidden nodes. Symlinks and special nodes are not traversed or read.
 // On the first filesystem error Scan returns the partial snapshot and error;
 // callers must not treat that partial result as a complete set of deletions.
@@ -160,11 +164,8 @@ func Scan(root string, maxDepth int) (Snapshot, error) {
 // reading metadata or contents. A rejected directory is pruned without reading
 // its children. Root is always included; nil allows every path.
 func ScanFiltered(root string, maxDepth int, allow func(path string, isDir bool) bool) (Snapshot, error) {
-	if maxDepth < 0 {
+	if maxDepth < AllDepth {
 		maxDepth = 0
-	}
-	if maxDepth > 5 {
-		maxDepth = 5
 	}
 	out := Snapshot{}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
@@ -180,7 +181,7 @@ func ScanFiltered(root string, maxDepth int, allow func(path string, isDir bool)
 		if rel != "." {
 			depth = strings.Count(rel, "/") + 1
 		}
-		if depth > maxDepth {
+		if maxDepth != AllDepth && depth > maxDepth {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}

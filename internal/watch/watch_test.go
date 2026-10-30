@@ -76,7 +76,7 @@ func TestScanDepthHiddenAndContent(t *testing.T) {
 	if string(s["a/note"].Content) != "hello\n" || s["a/note"].Path != "a/note" || !s["a"].IsDir {
 		t.Fatalf("bad entries: %#v", s)
 	}
-	s, err = Scan(root, 99)
+	s, err = Scan(root, 5)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -50,7 +50,7 @@ def deletion_check(binary, parent):
 
 
 def header_integration(binary, parent):
-    """A full Git corpus, including a file beyond the graph traversal limit."""
+    """A full Git corpus, including activity beyond the former depth limit."""
     root = parent / "header-repo"
     root.mkdir()
     git(root, "init", "-q")
@@ -134,12 +134,12 @@ def header_integration(binary, parent):
         (root / "new.txt").unlink()
         expect("delete untracked", 2, 4, 4, 109)
         (deep / "context.txt").write_text("deep context\n" * 120)
-        expect("deep update beyond graph traversal", 2, 4, 4, 129)
+        expect("deep update contributes activity", 2, 24, 4, 129)
         (deep / "context.txt").write_text("deep context\n" * 100)
-        expect("deep restore beyond graph traversal", 2, 4, 4, 109)
+        expect("deep restore contributes removals", 2, 24, 24, 109)
         (root / "live.txt").unlink()
         edited.write_text("keep0\nkeep1\nkeep2\n")
-        expect("negative net", 0, 4, 8, 103)
+        expect("negative net", 0, 24, 28, 103)
         terminal.send(b"q")
         terminal.proc.wait(timeout=5)
         assert terminal.proc.returncode == 0

@@ -49,7 +49,7 @@ func loadSessions(base string, paths []string, grouped bool) ([]repositorySessio
 			}
 			s.label = filepath.ToSlash(label)
 		}
-		s.initial, s.scanErr = source.Scan(5)
+		s.initial, s.scanErr = source.Scan(watch.AllDepth)
 		var initialErr error
 		if s.scanErr == nil {
 			s.events, initialErr = source.InitialChanges(s.initial, time.Now())

@@ -84,7 +84,7 @@ func (m *monitor) poll(now time.Time) scanUpdate {
 	var next watch.Snapshot
 	var err error
 	if m.repository != nil {
-		next, err = m.repository.Scan(5)
+		next, err = m.repository.Scan(watch.AllDepth)
 	} else {
 		next, err = watch.Scan(m.root, 5)
 	}
@@ -149,8 +149,7 @@ func (m *monitor) poll(now time.Time) scanUpdate {
 	if source, ok := m.repository.(lineTotalSource); ok {
 		n, complete, err := source.LineTotal()
 		if err != nil {
-			// The full-depth percentage is auxiliary: an inaccessible file
-			// outside the monitored snapshot must not freeze live activity.
+			// Auxiliary counting failures must not freeze valid live activity.
 			// Mark the ratio unavailable until a complete count succeeds.
 			complete = false
 		}

@@ -35,13 +35,10 @@ func parents(paths []byte) map[string]bool {
 // Scan includes allowed tracked and untracked files and their ancestor directories.
 // Git metadata and ignored subtrees are pruned before capturing filesystem contents.
 // Empty untracked directories are omitted, as Git does not enumerate them. Depth
-// follows watch.Scan (root zero, clamped to 0..5). Errors invalidate the snapshot.
+// follows watch.Scan (root zero, watch.AllDepth for unlimited). Errors invalidate the snapshot.
 func (r *Repository) Scan(maxDepth int) (watch.Snapshot, error) {
-	if maxDepth < 0 {
+	if maxDepth < watch.AllDepth {
 		maxDepth = 0
-	}
-	if maxDepth > 5 {
-		maxDepth = 5
 	}
 	r.depth = maxDepth
 	out, err := r.command("ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".")

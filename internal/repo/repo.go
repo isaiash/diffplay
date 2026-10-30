@@ -30,7 +30,7 @@ func Open(root string) (*Repository, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := &Repository{root: abs, depth: 5}
+	r := &Repository{root: abs, depth: watch.AllDepth}
 	out, err := r.command("rev-parse", "--is-inside-work-tree")
 	if err != nil {
 		if strings.Contains(err.Error(), "fatal: not a git repository") {

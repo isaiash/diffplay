@@ -69,7 +69,7 @@ func Run(args []string, out io.Writer) error {
 	showVersion := flags.Bool("version", false, "print version and exit")
 	view := flags.String("view", "combined", "initial view: combined, list or graph (Tab cycles views)")
 	flags.Usage = func() {
-		fmt.Fprintln(out, "Diffplay\n\nUsage: diffplay [options] [directory]\n\nLive repository activity inside your terminal: Hex lattice and sorted change tree.\nDefaults to the current directory; Git-ignored paths are excluded; depth <= 5.\nOutside Git, inspect only the selected directory and its immediate children; never recurse.\nHidden and reserved system/dependency children are skipped.\nStartup Git changes are loaded quietly; only subsequent live changes flash.\n\nTab: cycle combined → list → Hex graph. Combined: change list + diff above, Hex below; drag the divider to resize.\nMouse focuses each pane; keyboard starts in list; J/K scroll diff; n/p select files.\nList: arrows navigate, right expands, left collapses,\nclick toggles folders, hover selects, wheel scrolls, a/c expands/collapses all.\nGraph: dotted cells with majority body/minority nucleus; faint gray unchanged files.\nHover diff, drag to pan, wheel zoom at pointer, +/- zoom, r resets, n/p selects files.\nq: quit. Counts start from Git status/diff, then accumulate observed live edits.\n\nOptions:")
+		fmt.Fprintln(out, "Diffplay\n\nUsage: diffplay [options] [directory]\n\nLive repository activity inside your terminal: Hex lattice and sorted change tree.\nDefaults to the current directory; Git-ignored paths are excluded; repository paths are monitored at every depth.\nOutside Git, inspect only the selected directory and its immediate children; never recurse.\nHidden and reserved system/dependency children are skipped.\nStartup Git changes are loaded quietly; only subsequent live changes flash.\n\nTab: cycle combined → list → Hex graph. Combined: change list + diff above, Hex below; drag the divider to resize.\nMouse focuses each pane; keyboard starts in list; J/K scroll diff; n/p select files.\nList: arrows navigate, right expands, left collapses,\nclick toggles folders, hover selects, wheel scrolls, a/c expands/collapses all.\nGraph: dotted cells with majority body/minority nucleus; faint gray unchanged files.\nHover diff, drag to pan, wheel zoom at pointer, +/- zoom, r resets, n/p selects files.\nq: quit. Counts start from Git status/diff, then accumulate observed live edits.\n\nOptions:")
 		flags.PrintDefaults()
 	}
 	if err := flags.Parse(args); err != nil {
@@ -139,7 +139,7 @@ func Run(args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		initial, scanErr := source.Scan(5)
+		initial, scanErr := source.Scan(watch.AllDepth)
 		type item struct {
 			Path      string `json:"path"`
 			Directory bool   `json:"directory"`

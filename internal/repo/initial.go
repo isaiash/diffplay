@@ -121,7 +121,7 @@ func (r *Repository) entry(p string, o object) (watch.Entry, error) {
 // path exactly once against HEAD, not summing index and worktree diffs. Renames
 // are deletion/creation pairs. Unborn HEAD uses an empty baseline. Metadata-only
 // and index-only status entries remain visible with zero known text edits.
-// Deleted paths obey the most recent Scan depth (five before the first Scan).
+// Deleted paths obey the most recent Scan depth (unlimited before the first Scan).
 // Changed binary/symlink content and truncated blobs have unknown line statistics;
 // identical fully hashed content can still prove a metadata-only zero.
 func (r *Repository) InitialChanges(current watch.Snapshot, now time.Time) ([]watch.Event, error) {
@@ -147,7 +147,7 @@ func (r *Repository) InitialChanges(current watch.Snapshot, now time.Time) ([]wa
 			continue
 		}
 		p = strings.TrimPrefix(p, scope)
-		if validPath(p) && strings.Count(p, "/")+1 <= r.depth {
+		if validPath(p) && (r.depth == watch.AllDepth || strings.Count(p, "/")+1 <= r.depth) {
 			candidates[p] = true
 		}
 	}

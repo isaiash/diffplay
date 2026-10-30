@@ -18,7 +18,7 @@ smoke: build
 	trap 'rm -rf "$$state"' EXIT HUP INT TERM; \
 	mkdir -p "$$state/tmp"; \
 	export HOME="$$state" XDG_CONFIG_HOME="$$state/config" TMPDIR="$$state/tmp"; \
-	for name in unified terminal list git hierarchy workspace activity selection contrast burst; do \
+	for name in unified terminal list git hierarchy workspace activity selection contrast burst depth; do \
 		python3 -u "scripts/$${name}_smoke.py" "$(CURDIR)/bin/diffplay" || exit $$?; \
 	done
 
