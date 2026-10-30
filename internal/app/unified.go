@@ -46,7 +46,7 @@ func (u *ui) renderCombined(w, h int, now time.Time) *canvas {
 		graph := u.renderGraphCanvas(w, graphHeight, now)
 		copy(c.cells[(top+1)*w:], graph.cells)
 	}
-	c.text(1, h-1, "q quit · Tab view · ↑↓ · ←→ tree · drag split/pan · wheel · J/K diff · Shift+drag select · terminal copy shortcut", gray, w-2)
+	renderFooter(c, "q quit · Tab view · wheel · J/K diff · drag split/pan · drag diff select")
 	return c
 }
 func (u *ui) keyboardDimensions() {
@@ -64,6 +64,9 @@ func (u *ui) keyboardDimensions() {
 }
 func (u *ui) routeMouse(code, x, y int, release bool) {
 	u.followPending = nil
+	if !u.dragging && !u.splitDragging && !u.listSplitDragging && u.selectionMouse(code, x, y, release) {
+		return
+	}
 	u.dividerHover = 0
 	u.dividerX, u.dividerY = x, y
 	if u.listSplitDragging {

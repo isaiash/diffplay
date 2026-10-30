@@ -36,7 +36,7 @@ func TestEveryDiffPreviewExpandsTabs(t *testing.T) {
 	}
 }
 
-func TestNativeSelectionNeedsNoCopyMode(t *testing.T) {
+func TestSelectionNeedsNoCopyModeOrFixedShortcut(t *testing.T) {
 	for _, mode := range []string{"list", "combined", "graph"} {
 		t.Run(mode, func(t *testing.T) {
 			u := newUI(newGraph(), "/repo")
@@ -49,8 +49,11 @@ func TestNativeSelectionNeedsNoCopyMode(t *testing.T) {
 				t.Fatal("m must not change the frame or terminal mouse reporting")
 			}
 			footer := plainList(after)
-			if !strings.Contains(footer, "Shift+drag select") || !strings.Contains(footer, "terminal copy shortcut") {
-				t.Fatal("footer must explain native selection and the configured terminal copy shortcut")
+			if mode != "graph" && !strings.Contains(footer, "drag diff select") {
+				t.Fatal("footer must explain application diff selection")
+			}
+			if strings.Contains(footer, "terminal copy shortcut") {
+				t.Fatal("obsolete copy guidance")
 			}
 			if strings.Contains(footer, "Ctrl+Shift+C") || strings.Contains(footer, "Cmd+C") || strings.Contains(footer, "m copy") {
 				t.Fatal("copy guidance must not hardcode shortcuts or offer a copy mode")

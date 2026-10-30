@@ -465,6 +465,7 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 		}
 	}
 	if treeWidth < w {
+		previewRows := 0
 		for y := 1; y < 2+visible; y++ {
 			c.put(treeWidth, y, '│', gray)
 		}
@@ -503,11 +504,15 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 					}
 					c.text(px, 4+i, diffText(line), color, pw)
 				}
+				if focus.diff != "" {
+					previewRows = min(n, len(lines)-u.scroll)
+				}
 			}
 		}
+		u.previewCells(c, treeWidth+2, 4, w-treeWidth-3, previewRows)
 	}
 	if !u.combined {
-		c.text(1, h-1, "q quit · Tab view · ↑↓ select · ←→ tree · wheel · J/K diff · Shift+drag select · terminal copy shortcut", gray, w-2)
+		renderFooter(c, "q quit · Tab view · ↑↓ · ←→ · wheel · J/K diff · drag diff select")
 	}
 	return c
 }

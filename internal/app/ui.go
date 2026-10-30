@@ -283,6 +283,8 @@ type ui struct {
 	graphLayoutCombined              bool
 	terminalWidth, terminalHeight    int
 	lastFrame                        string
+	preview, selection               *previewSelection
+	pendingControl                   string
 	lastFrameWidth, lastFrameHeight  int
 
 	terminalBackground, terminalSelectedBackground rgb
@@ -339,7 +341,7 @@ func (u *ui) input(data []byte) {
 	for len(u.pending) > 0 {
 		if u.terminalOSCActive {
 			// Quit keys cannot occur in either requested color reply.
-			if u.pending[0] == 'q' || u.pending[0] == 3 {
+			if (u.pending[0] == 'q' || u.pending[0] == 3) && !strings.HasPrefix(string(u.terminalOSC), "52;") {
 				u.terminalOSCActive, u.terminalOSC = false, nil
 				continue
 			}
@@ -442,6 +444,7 @@ func (u *ui) input(data []byte) {
 		key := u.pending[0]
 		u.pending = u.pending[1:]
 		if key == '	' {
+			u.preview, u.selection = nil, nil
 			if u.combined {
 				u.combined, u.listMode = false, true
 			} else if u.listMode {
@@ -536,11 +539,13 @@ func (u *ui) cycleGraph(delta int) {
 func (u *ui) draw(w, h int, now time.Time) string {
 	w, h = max(1, w), max(1, h)
 	frame := u.render(w, h, now)
+	control := u.pendingControl
+	u.pendingControl = ""
 	if frame == u.lastFrame && w == u.lastFrameWidth && h == u.lastFrameHeight {
-		return ""
+		return control
 	}
 	u.lastFrame, u.lastFrameWidth, u.lastFrameHeight = frame, w, h
-	return frame
+	return control + frame
 }
 
 func (u *ui) render(w, h int, now time.Time) string {
@@ -550,6 +555,10 @@ func (u *ui) render(w, h int, now time.Time) string {
 	u.height = h
 	u.terminalWidth, u.terminalHeight = w, h
 	u.advanceFollow(now)
+	if u.selection != nil && (w != u.lastFrameWidth || h != u.lastFrameHeight || !u.listMode && !u.combined) {
+		u.selection = nil
+	}
+	u.preview = nil
 	var c *canvas
 	if u.combined {
 		c = u.renderCombined(w, h, now)

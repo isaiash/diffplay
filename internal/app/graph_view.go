@@ -172,11 +172,11 @@ func (u *ui) renderGraphCanvas(w, h int, now time.Time) *canvas {
 		if u.paused {
 			state = "PAUSED"
 		}
-		help := fmt.Sprintf("%s %d files · q quit · Tab view · drag pan · wheel · j/k diff · Shift+drag select · terminal copy shortcut", state, len(nodes))
+		help := fmt.Sprintf("%s %d files · q quit · Tab view · wheel · j/k · drag pan", state, len(nodes))
 		if u.warning != "" {
 			help += " · Warning: " + u.warning
 		}
-		c.text(1, h-1, help, gray, w-2)
+		renderFooter(c, help)
 	}
 	if n := u.graph.nodes[u.selected]; !u.combined && n != nil && !n.dir && w >= 24 && h >= 10 {
 		pw := min(76, max(24, w/2))
