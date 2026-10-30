@@ -11,9 +11,17 @@ func folderName(id string) string { return path.Base(id) }
 // Project the same camera transform as file glyphs. Clip drawing, not frame
 // geometry, so panning an edge offscreen never invents a border at the viewport.
 func (u *ui) drawFolderFrame(c *canvas, folder folderEnvelope) {
-	color := gray
-	titleColor := gray
-	if u.selected != "" && (u.selected == folder.ID || strings.HasPrefix(u.selected, folder.ID+"/")) {
+	color := rgb{r: 128, g: 128, b: 128}
+	titleColor := color
+	inRange := func(id string) bool {
+		return folder.Start != "" && (id == folder.Start || strings.HasPrefix(id, folder.Start+"/")) &&
+			(id == folder.ID || strings.HasPrefix(folder.ID, id+"/"))
+	}
+	mergedFile := false
+	if n := u.graph.nodes[u.selected]; n != nil && !n.dir {
+		mergedFile = inRange(n.parent)
+	}
+	if u.selected != "" && (u.selected == folder.ID || strings.HasPrefix(u.selected, folder.ID+"/") || inRange(u.selected) || mergedFile) {
 		color, titleColor = white, white
 	}
 	left, top := u.screen(&node{x: folder.Left, y: folder.Top})
@@ -41,7 +49,13 @@ func (u *ui) drawFolderFrame(c *canvas, folder folderEnvelope) {
 	put(x0, y1, '└')
 	put(x1, y1, '┘')
 	if y0 >= 2 && y0 < c.h-2 {
-		title := u.displayName(folder.ID) + "/"
+		title := folder.Label
+		if title == "" {
+			title = u.displayName(folder.ID)
+		} else if label, ok := u.repositoryLabels[folder.Start]; ok {
+			title = label + strings.TrimPrefix(title, folderName(folder.Start))
+		}
+		title += "/"
 		// Crop by glyph width rather than byte length, preserving Unicode paths.
 		x := x0 + 2
 		for _, ch := range safeText(title) {

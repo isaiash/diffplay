@@ -6,15 +6,13 @@ import (
 	"strings"
 )
 
-// sessionEdits counts only leaf records, not the directory aggregates in the tree.
-func (u *ui) sessionEdits() ([3]*big.Int, bool) {
+// sessionEdits sums known leaf line edits, excluding directory and unknown records.
+func (u *ui) sessionEdits() [3]*big.Int {
 	counts := [3]*big.Int{new(big.Int), new(big.Int), new(big.Int)}
-	unknown := false
 	for _, row := range u.history.entries {
-		if row.dir {
+		if row.dir || row.unknown {
 			continue
 		}
-		unknown = unknown || row.unknown
 		group := 1
 		if row.fresh {
 			group = 0
@@ -26,7 +24,7 @@ func (u *ui) sessionEdits() ([3]*big.Int, bool) {
 			counts[2].Add(counts[2], big.NewInt(int64(row.removed)))
 		}
 	}
-	return counts, unknown
+	return counts
 }
 
 // headerWidths apportions terminal cells exactly using largest remainders;
@@ -92,23 +90,16 @@ func (u *ui) renderSessionHeader(c *canvas) {
 	if c.h <= 0 || c.w <= 0 {
 		return
 	}
-	counts, unknown := u.sessionEdits()
+	counts := u.sessionEdits()
 	added := new(big.Int).Add(counts[0], counts[1])
 	metrics := ""
 	for i, count := range []*big.Int{added, counts[2]} {
-		if count.Sign() != 0 || unknown {
+		if count.Sign() != 0 {
 			sign := "+"
 			if i == 1 {
 				sign = "-"
 			}
 			label := count.String()
-			if unknown {
-				if count.Sign() == 0 {
-					label = "?"
-				} else {
-					label += "?"
-				}
-			}
 			metrics += " " + sign + label
 		}
 	}
@@ -116,7 +107,7 @@ func (u *ui) renderSessionHeader(c *canvas) {
 	percent := "?%"
 	denominator, known := u.repositoryLineTotal()
 	net := new(big.Int).Sub(added, counts[2])
-	if known && !unknown {
+	if known {
 		if denominator > 0 {
 			ratio := new(big.Rat).SetFrac(new(big.Int).Mul(net, big.NewInt(100)), big.NewInt(int64(denominator)))
 			percent = ratio.FloatString(2) + "%"
@@ -147,16 +138,14 @@ func (u *ui) renderSessionHeader(c *canvas) {
 		header += "  Warning: " + u.warning
 	}
 	c.text(0, 0, header, gray, available)
-	if !unknown {
-		widths := headerWidths(c.w, counts)
-		colors := [3]rgb{blue, green, red}
-		x := 0
-		for i, n := range widths {
-			for j := 0; j < n; j++ {
-				c.cells[x].bg = colors[i]
-				c.cells[x].color = headerInk
-				x++
-			}
+	widths := headerWidths(c.w, counts)
+	colors := [3]rgb{blue, green, red}
+	x := 0
+	for i, n := range widths {
+		for j := 0; j < n; j++ {
+			c.cells[x].bg = colors[i]
+			c.cells[x].color = headerInk
+			x++
 		}
 	}
 }

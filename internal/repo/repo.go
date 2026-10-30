@@ -21,6 +21,7 @@ type Repository struct {
 	baselineHead    string
 	baselineTree    map[string]object
 	baselineEntries map[object]watch.Entry
+	previews        map[string]cachedPreview
 }
 
 // Open discovers a working tree while retaining root as the snapshot scope.

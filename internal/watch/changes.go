@@ -9,11 +9,12 @@ import (
 )
 
 type Event struct {
-	Path  string
-	Kind  string
-	IsDir bool
-	Diff  string
-	At    time.Time
+	Path     string
+	Kind     string
+	IsDir    bool
+	Diff     string
+	Document *Document
+	At       time.Time
 
 	// Added and Removed count line edits for this event, not net changes
 	// against a session baseline. They are meaningful only when StatsKnown.
@@ -61,7 +62,20 @@ func Changes(before, after Snapshot, now time.Time) []Event {
 			e = a
 		}
 		text, added, removed, known := diff(p, a, b, aok, bok)
-		event := Event{Path: p, Kind: kind, IsDir: e.IsDir, Diff: text, At: now, Added: added, Removed: removed, StatsKnown: known}
+		var document *Document
+		completeOld := !aok || (!a.Truncated || a.Source != nil) && (a.Content != nil || a.Size == 0)
+		completeNew := !bok || (!b.Truncated || b.Source != nil) && (b.Content != nil || b.Size == 0)
+		if !e.IsDir && completeOld && completeNew && strings.Contains(text, "Diff omitted:") {
+			var err error
+			document, err = pagedDiff(p, a, b, aok, bok)
+			if err == nil {
+				text = document.Text(DiffLimit)
+				added, removed, known = document.Added, document.Removed, !document.Binary
+			} else {
+				text = "Diff unavailable: " + err.Error() + "\n"
+			}
+		}
+		event := Event{Path: p, Kind: kind, IsDir: e.IsDir, Diff: text, Document: document, At: now, Added: added, Removed: removed, StatsKnown: known}
 		// A complete creation/deletion needs no alignment, even when its
 		// rendered diff exceeds the line or output bounds.
 		if (!aok || !bok) && !e.IsDir && !e.Truncated && len(e.Content) <= ContentLimit && (e.Content != nil || e.Size == 0) {
@@ -77,8 +91,8 @@ func Changes(before, after Snapshot, now time.Time) []Event {
 	return events
 }
 
-// DiffLimit bounds output; quadratic line alignment is separately capped at
-// one million cells. Large inputs get an explicit marker, never unbounded work.
+// DiffLimit bounds the compatibility string. Larger diffs use Document windows;
+// the in-process small-text aligner stays capped at one million cells.
 const DiffLimit = 64 * 1024
 
 type edit struct {

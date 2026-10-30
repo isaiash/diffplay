@@ -17,6 +17,11 @@ import (
 )
 
 type object struct{ mode, oid string }
+type cachedPreview struct {
+	head  string
+	entry watch.Entry
+	event watch.Event
+}
 
 // HeadChanges provides live previews without changing interval event statistics.
 func (r *Repository) HeadChanges(current watch.Snapshot, now time.Time) ([]watch.Event, error) {
@@ -52,6 +57,11 @@ func (r *Repository) tree(head string) (map[string]object, error) {
 }
 
 func (r *Repository) cacheBaseline(head string, tree map[string]object) {
+	for _, e := range r.baselineEntries {
+		if e.Source != nil {
+			e.Source.Close()
+		}
+	}
 	r.baselineHead, r.baselineTree = head, tree
 	r.baselineEntries = make(map[object]watch.Entry)
 }
@@ -89,13 +99,21 @@ func (r *Repository) entry(p string, o object) (watch.Entry, error) {
 	data := make([]byte, min(e.Size, int64(watch.ContentLimit)))
 	_, readErr := io.ReadFull(pipe, data)
 	if e.Truncated {
-		_ = c.Process.Kill()
+		if e.Size <= watch.HashLimit && o.mode != "120000" && e.Content == nil && !bytes.ContainsRune(data, 0) {
+			e.Source, readErr = watch.NewDocument(io.MultiReader(bytes.NewReader(data), pipe))
+			if e.Source != nil && !e.Source.TextKnown {
+				e.Source.Close()
+				e.Source = nil
+			}
+		} else {
+			_ = c.Process.Kill()
+		}
 	}
 	waitErr := c.Wait()
 	if readErr != nil {
 		return e, fmt.Errorf("read Git blob %s: %w", o.oid, readErr)
 	}
-	if waitErr != nil && !e.Truncated {
+	if waitErr != nil && (!e.Truncated || e.Source != nil) {
 		return e, fmt.Errorf("read Git blob: %w: %s", waitErr, stderr.String())
 	}
 	e.Hash = sha256.Sum256(data)
@@ -172,7 +190,31 @@ func (r *Repository) InitialChanges(current watch.Snapshot, now time.Time) ([]wa
 			after[p] = e
 		}
 	}
-	events := watch.Changes(before, after, now)
+	var events []watch.Event
+	cache := make(map[string]cachedPreview, len(candidates))
+	for p := range candidates {
+		b, bok := after[p]
+		if saved, ok := r.previews[p]; ok && saved.head == head && (saved.event.Document == nil || saved.event.Document.Available()) && saved.entry.Hash == b.Hash && saved.entry.Size == b.Size && saved.entry.ModTime.Equal(b.ModTime) {
+			e := saved.event
+			e.At = now
+			events = append(events, e)
+			cache[p] = saved
+			continue
+		}
+		aa, bb := watch.Snapshot{}, watch.Snapshot{}
+		if a, ok := before[p]; ok {
+			aa[p] = a
+		}
+		if bok {
+			bb[p] = b
+		}
+		found := watch.Changes(aa, bb, now)
+		events = append(events, found...)
+		if len(found) > 0 {
+			cache[p] = cachedPreview{head, b, found[0]}
+		}
+	}
+	r.previews = cache
 	seen := map[string]bool{}
 	for i := range events {
 		e := &events[i]

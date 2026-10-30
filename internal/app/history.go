@@ -1,6 +1,7 @@
 package app
 
 import (
+	"github.com/isaiash/diffplay/internal/watch"
 	"path"
 	"sort"
 	"strings"
@@ -15,6 +16,7 @@ type history struct {
 }
 
 type changeRow struct {
+	document            *watch.Document
 	id, kind, diff      string
 	flashKind           string
 	dir, fresh, unknown bool
@@ -36,6 +38,10 @@ func (h *history) record(id, kind string, dir bool, diff string, added, removed 
 	r.kind = kind
 	r.flashKind = kind
 	r.dir = dir
+	if r.document != nil {
+		r.document.Close()
+		r.document = nil
+	}
 	r.diff = diff
 	r.changed = at
 	if kind == "created" {

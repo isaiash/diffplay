@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 
-from list_smoke import BLUE, GREEN, RED, Terminal, assert_terminal_restored, braille_cells, mode
+from list_smoke import BLUE, GREEN, RED, WHITE, Terminal, assert_terminal_restored, braille_cells, colored_cells, mode
 from contrast_smoke import cells
 
 
@@ -15,9 +15,45 @@ def git(root, *args):
     return subprocess.check_output(["git", "-C", str(root), *args], stderr=subprocess.PIPE)
 
 
+def compressed_chains(binary, parent):
+    root = parent / "compressed"
+    (root / "a/b/c/d").mkdir(parents=True)
+    (root / "a/b/c/d/file.txt").write_text("deep\n")
+    (root / "a/b/file2.txt").write_text("direct\n")
+    git(root, "init", "-q")
+    terminal = Terminal(binary, root, "graph")
+    def corners(raw):
+        return [color for _, _, char, color in colored_cells(raw) if char == "┌"]
+    try:
+        terminal.resize(240, 80)
+        raw, rows = terminal.frame(lambda raw, rows: mode(rows, "graph") and "a/b/" in raw and "c/d/" in raw)
+        assert corners(raw) == [(128, 128, 128)] * 2, "expected two gray compressed frames"
+        terminal.send(b"n")
+        terminal.frame(lambda raw, rows: "a/b/c/d/file.txt" in raw and corners(raw).count(WHITE) == 2)
+        terminal.send(b"n")
+        terminal.frame(lambda raw, rows: "a/b/file2.txt" in raw and corners(raw).count(WHITE) == 1 and corners(raw).count((128, 128, 128)) == 1)
+        (root / "a/b/c/e").mkdir()
+        (root / "a/b/c/e/extra.txt").write_text("branch\n")
+        terminal.frame(lambda raw, rows: "3 files" in rows[-1] and len(corners(raw)) == 4 and "e/" in raw)
+        (root / "a/b/c/direct.txt").write_text("direct in c\n")
+        terminal.frame(lambda raw, rows: "4 files" in rows[-1])
+        (root / "a/b/c/e/extra.txt").unlink()
+        terminal.frame(lambda raw, rows: "3 files" in rows[-1] and len(corners(raw)) == 3)
+        (root / "a/b/c/direct.txt").unlink()
+        terminal.frame(lambda raw, rows: "2 files" in rows[-1] and len(corners(raw)) == 2 and "c/d/" in raw)
+        terminal.send(b"q")
+        terminal.proc.wait(timeout=5)
+        assert terminal.proc.returncode == 0
+        assert_terminal_restored(terminal.slave, terminal.before)
+        print("PASS: a/b and c/d compressed frames, selected ancestors, live branch/direct-file expansion and recompression")
+    finally:
+        terminal.close()
+
+
 def main():
     binary = str(Path(sys.argv[1] if len(sys.argv) > 1 else "./bin/diffplay").resolve())
     with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR", str(Path.home() / ".cache"))) as temp:
+        compressed_chains(binary, Path(temp))
         root = Path(temp) / "repo"
         root.mkdir()
         git(root, "init", "-q")

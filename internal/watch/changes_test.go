@@ -42,7 +42,7 @@ func TestUnifiedDiffContextAndBounds(t *testing.T) {
 		t.Fatalf("missing binary marker: %q", got)
 	}
 	got = event(Entry{Content: []byte(strings.Repeat("old\n", 10000))}, Entry{Content: []byte(strings.Repeat("new\n", 10000))})
-	if len(got) > 65536 || !strings.Contains(got, "omitted") {
+	if len(got) > DiffLimit || !strings.Contains(got, "-old") || strings.Contains(got, "omitted") {
 		t.Fatalf("unbounded diff length %d", len(got))
 	}
 	got = event(Entry{Content: []byte("old\n"), Truncated: true}, Entry{Content: []byte("new\n"), Truncated: true})

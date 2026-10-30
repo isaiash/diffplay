@@ -72,15 +72,33 @@ func TestSessionHeaderPercentageTracksEditsAndRepositoryTotal(t *testing.T) {
 func TestSessionHeaderUnknownEditsDoNotShowFalsePercentOrColors(t *testing.T) {
 	u := newUI(newGraph(), "/repo")
 	u.repositoryTotals = map[string]repositoryLineCount{"": {lines: 100, known: true}}
-	u.recordChange("binary", "modified", false, "", 3, 0, false, time.Time{})
+	u.recordChange("binary.png", "created", false, "", 0, 0, false, time.Time{})
 	c := u.renderListCanvas(80, 5, time.Time{})
-	if line := headerText(c); !strings.Contains(line, "+3? -? ?%") {
-		t.Fatalf("unknown edits: %q", line)
+	if line := headerText(c); !strings.Contains(line, "0.00% new lines") || strings.Contains(line, "?%") || strings.Contains(line, "+?") {
+		t.Fatalf("unknown object must not affect global line metrics: %q", line)
 	}
 	for _, cell := range c.cells[:c.w] {
 		if cell.bg != (rgb{}) {
-			t.Fatalf("unknown edit distribution must have no color: %+v", cell.bg)
+			t.Fatalf("object file must not affect global bar: %+v", cell.bg)
 		}
+	}
+	if got := u.filePercentage(u.history.entries["binary.png"]); got != "?" {
+		t.Fatalf("object file row should remain unknown: %q", got)
+	}
+}
+
+func TestUnknownObjectIsExcludedFromGlobalMetricsBesideTextEdits(t *testing.T) {
+	u := newUI(newGraph(), "/repo")
+	u.repositoryTotals = map[string]repositoryLineCount{"": {lines: 100, known: true}}
+	u.recordChange("binary.png", "created", false, "", 0, 0, false, time.Time{})
+	u.recordChange("source.go", "modified", false, "", 4, 2, true, time.Time{})
+	c := u.renderListCanvas(80, 5, time.Time{})
+	line := headerText(c)
+	if !strings.Contains(line, "+4 -2 2.00% new lines") || strings.Contains(line, "?%") {
+		t.Fatalf("unknown binary contaminated known text totals: %q", line)
+	}
+	if got := u.filePercentage(u.history.entries["binary.png"]); got != "?" {
+		t.Fatalf("binary row must keep unknown marker: %q", got)
 	}
 }
 

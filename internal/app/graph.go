@@ -1,6 +1,7 @@
 package app
 
 import (
+	"github.com/isaiash/diffplay/internal/watch"
 	"hash/fnv"
 	"math"
 	"sort"
@@ -11,6 +12,7 @@ const burstDuration = 4 * time.Second
 const tombstoneDuration = 12 * time.Second
 
 type node struct {
+	document   *watch.Document
 	id, parent string
 	dir        bool
 	x, y       float64

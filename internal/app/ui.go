@@ -267,6 +267,8 @@ type ui struct {
 	terminalOSCActive       bool
 	terminalOSCStarted      time.Time
 	scroll                  int
+	previewText             string
+	previewLines            []string
 	dragging                bool
 	dragX, dragY            int
 

@@ -13,6 +13,10 @@ type repositorySource interface {
 	FilterPaths([]string) (map[string]bool, error)
 }
 
+type previousScanSource interface {
+	ScanPrevious(int, watch.Snapshot) (watch.Snapshot, error)
+}
+
 // Non-Git sources retain their ordinary filesystem deletion behavior.
 type trackingSource interface {
 	TrackedPaths() (map[string]bool, error)
@@ -41,6 +45,7 @@ type scanUpdate struct {
 	totalKey      string
 	modifications map[string]int
 	previews      map[string]string
+	documents     map[string]*watch.Document
 	warning       error
 }
 type monitor struct {
@@ -55,6 +60,8 @@ type monitor struct {
 	storageErr    error
 	pending       map[string]int
 	resets        map[string]bool
+	previewDocs   map[string]*watch.Document
+	previewTexts  map[string]string
 }
 
 func newMonitor(root string, repository repositorySource, initial watch.Snapshot, events []changeEvent, seeded bool) *monitor {
@@ -84,13 +91,24 @@ func (m *monitor) poll(now time.Time) scanUpdate {
 	var next watch.Snapshot
 	var err error
 	if m.repository != nil {
-		next, err = m.repository.Scan(watch.AllDepth)
+		if source, ok := m.repository.(previousScanSource); ok {
+			next, err = source.ScanPrevious(watch.AllDepth, m.previous)
+		} else {
+			next, err = m.repository.Scan(watch.AllDepth)
+		}
 	} else {
-		next, err = watch.Scan(m.root, 5)
+		next, err = watch.ScanPrevious(m.root, 5, m.previous)
 	}
 	if err != nil {
+		watch.CloseSnapshotExcept(next, m.previous)
 		return scanUpdate{err: err}
 	}
+	accepted := false
+	defer func() {
+		if !accepted {
+			watch.CloseSnapshotExcept(next, m.previous)
+		}
+	}()
 	var tracked map[string]bool
 	if source, ok := m.repository.(trackingSource); ok {
 		tracked, err = source.TrackedPaths()
@@ -132,10 +150,15 @@ func (m *monitor) poll(now time.Time) scanUpdate {
 		for _, e := range events {
 			if tracked != nil && e.Kind == "deleted" && !tracked[e.Path] && !m.tracked[e.Path] {
 				visible[e.Path] = false
+				if e.Document != nil {
+					e.Document.Close()
+				}
 				continue
 			}
 			if allowed, ok := visible[e.Path]; !ok || allowed {
 				filtered = append(filtered, e)
+			} else if e.Document != nil {
+				e.Document.Close()
 			}
 		}
 		events = filtered
@@ -155,7 +178,10 @@ func (m *monitor) poll(now time.Time) scanUpdate {
 		}
 		total = &repositoryLineCount{lines: n, known: complete}
 	}
+	previous := m.previous
 	m.previous = next
+	accepted = true
+	watch.CloseSnapshotExcept(previous, next)
 	m.known = known
 	m.tracked = tracked
 	m.seeded = true
@@ -170,6 +196,7 @@ func (m *monitor) activity(up *scanUpdate, now time.Time) {
 		up.modifications[p] = 0
 	}
 	var dirty map[string]string
+	documents := make(map[string]*watch.Document)
 	if source, ok := m.repository.(headChangesSource); ok {
 		events, err := source.HeadChanges(up.snapshot, now)
 		if err != nil {
@@ -179,11 +206,13 @@ func (m *monitor) activity(up *scanUpdate, now time.Time) {
 			for _, e := range events {
 				if !e.IsDir {
 					dirty[e.Path] = e.Diff
+					documents[e.Path] = e.Document
 				}
 			}
 		}
 	}
 	up.previews = make(map[string]string)
+	up.documents = make(map[string]*watch.Document)
 	if !up.baseline {
 		for _, e := range up.events {
 			if e.IsDir {
@@ -196,10 +225,25 @@ func (m *monitor) activity(up *scanUpdate, now time.Time) {
 			up.modifications[e.Path] = 0
 			if dirty != nil {
 				up.previews[e.Path] = dirty[e.Path]
+				up.documents[e.Path] = documents[e.Path]
 			} else if up.warning != nil {
 				up.previews[e.Path] = "HEAD preview unavailable: " + up.warning.Error() + "\n"
 			}
 		}
+	}
+	if dirty != nil {
+		for p, text := range dirty {
+			if m.previewTexts != nil && (m.previewTexts[p] != text || m.previewDocs[p] != documents[p]) {
+				up.previews[p] = text
+				up.documents[p] = documents[p]
+			}
+		}
+		for p := range m.previewTexts {
+			if _, ok := dirty[p]; !ok {
+				up.previews[p] = ""
+			}
+		}
+		m.previewTexts, m.previewDocs = dirty, documents
 	}
 	if dirty != nil {
 		for p := range m.modifications {

@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,7 +23,6 @@ import (
 const version = "0.6.0"
 
 type changeEvent = watch.Event
-
 
 func applySnapshot(g *graph, s watch.Snapshot, events []changeEvent, now time.Time) {
 	// Scanned files provide quiet graph-only context. Missing snapshot paths are
@@ -51,6 +51,7 @@ func applySnapshot(g *graph, s watch.Snapshot, events []changeEvent, now time.Ti
 		}
 		g.upsert(e.Path, path.Dir(e.Path), e.IsDir)
 		g.mark(e.Path, e.Kind, e.Diff, e.At)
+		g.nodes[e.Path].document = e.Document
 	}
 	// Retire old tombstones only alongside a file change, never on idle polls.
 	for _, e := range events {
@@ -60,8 +61,10 @@ func applySnapshot(g *graph, s watch.Snapshot, events []changeEvent, now time.Ti
 		}
 	}
 }
+
 // Run executes the command without terminating the caller's process.
 func Run(args []string, out io.Writer) error {
+	defer watch.CloseDocuments()
 	flags := flag.NewFlagSet("diffplay", flag.ContinueOnError)
 	flags.SetOutput(out)
 	interval := flags.Duration("interval", 400*time.Millisecond, "filesystem polling interval (minimum 50ms)")
@@ -187,9 +190,12 @@ func Run(args []string, out io.Writer) error {
 	}
 	updates := make(chan repositoryUpdate, len(sessions))
 	done := make(chan struct{})
-	defer close(done)
+	var workers sync.WaitGroup
+	defer func() { close(done); workers.Wait() }()
 	for _, s := range sessions {
+		workers.Add(1)
 		go func(s repositorySession) {
+			defer workers.Done()
 			watcher := s.newMonitor()
 			ticker := time.NewTicker(*interval)
 			defer ticker.Stop()

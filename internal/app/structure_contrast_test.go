@@ -102,7 +102,7 @@ func TestStructureFolderFrames(t *testing.T) {
 		name, selected string
 		want           rgb
 	}{
-		{"inactive", "", gray}, {"unrelated active", "other/file", gray}, {"selected ancestor", "dir/file", white},
+		{"inactive", "", rgb{r: 128, g: 128, b: 128}}, {"unrelated active", "other/file", rgb{r: 128, g: 128, b: 128}}, {"selected ancestor", "dir/file", white},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			u := newUI(newGraph(), "/repo")
@@ -112,15 +112,13 @@ func TestStructureFolderFrames(t *testing.T) {
 			for _, point := range []struct {
 				x, y int
 				ch   rune
-			}{{5, 3, '┌'}, {40, 3, '┐'}, {5, 13, '└'}, {40, 13, '┘'}, {5, 5, '│'}, {20, 13, '─'}} {
+			}{{5, 3, '┌'}, {40, 3, '┐'}, {5, 13, '└'}, {40, 13, '┘'}, {5, 5, '│'}, {20, 13, '─'}, {7, 3, 'd'}} {
 				v := c.cells[point.y*c.w+point.x]
 				if v.ch != point.ch {
 					t.Fatalf("frame cell = %q, want %q", v.ch, point.ch)
 				}
-				if tc.want == gray {
-					assertStructure(t, c, point.x, point.y, point.ch)
-				} else if v.color != white {
-					t.Errorf("selected frame %q = %+v, want white", v.ch, v.color)
+				if v.color != tc.want {
+					t.Errorf("frame %q = %+v, want %+v", v.ch, v.color, tc.want)
 				}
 			}
 		})

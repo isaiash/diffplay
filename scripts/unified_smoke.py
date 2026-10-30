@@ -99,7 +99,7 @@ def main():
             midpoint = geometry(rows)
             assert midpoint == (48 - 2) // 2
             assert "inactive/" not in raw and "deep/" not in raw and "./" not in raw
-            assert "nested/" in raw and "active/nested/" not in "\n".join(rows[midpoint:])
+            assert "active/nested/" in "\n".join(rows[midpoint:]), "single-child chains must share one frame label"
             assert "✦" not in raw and "�" not in raw
             totals = header_prefix(rows[0])
             assert totals == "+5 -2 23.08% new lines"
@@ -118,11 +118,11 @@ def main():
             assert all((x, y) in before_cells and before_cells[x, y][0] == char for x, y, char in white), "selection must not change circle symbols/masks"
             assert any(before_cells[x, y][1] != WHITE for x, y, _ in white), "selection must recolor existing cells"
             white_frames = [(x, y, char) for x, y, char, color in colored_cells(raw) if y > midpoint and char in "┌┐└┘─│" and color == WHITE]
-            assert sum(char == "┌" for _, _, char in white_frames) == 2, "both ancestor frames must turn white"
+            assert sum(char == "┌" for _, _, char in white_frames) == 1, "the compressed ancestor frame must turn white"
             evidence = Path(scratch, "diffplay-combined-frame.ansi")
             evidence.write_text(raw)
             print(f"Captured combined frame: {evidence}")
-            print("PASS: list selection drives upper-right diff, white Braille cell and both ancestor borders")
+            print("PASS: list selection drives upper-right diff, white Braille cell and compressed ancestor border")
 
             # Search real painted graph cells; no fabricated node coordinates.
             def hover_file(name, color):

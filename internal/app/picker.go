@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -155,7 +156,7 @@ func (p *repositoryPicker) render(w, h int) string {
 			mark = "[x] "
 			color = blue
 		}
-		c.text(2, y, mark+p.paths[i], color, w-3)
+		c.text(2, y, mark+filepath.Base(p.paths[i]), color, w-3)
 		if i == p.focus {
 			c.put(0, y, '›', white)
 			for x := 0; x < w; x++ {

@@ -23,6 +23,7 @@ type fileCluster struct {
 // available to legacy callers, but do not determine folder packing.
 type folderEnvelope struct {
 	ID                              string
+	Label, Start                    string
 	Left, Top, Width, Height        float64
 	CenterX, CenterY, Radius, Scale float64
 	Depth                           int
@@ -30,13 +31,14 @@ type folderEnvelope struct {
 
 type packedCircle struct{ x, y, r float64 }
 type packedFolder struct {
-	id       string
-	depth    int
-	children []*packedFolder
-	nodes    []*node
-	files    []packedCircle
-	zone     packedRect
-	rect     packedRect
+	id           string
+	start, label string
+	depth        int
+	children     []*packedFolder
+	nodes        []*node
+	files        []packedCircle
+	zone         packedRect
+	rect         packedRect
 }
 
 type packedRect struct{ x, y, w, h float64 }
@@ -147,7 +149,7 @@ func (f *packedFolder) packRect(aspect float64) {
 	// One horizontal cell and one terminal row of border inset; two rows
 	// above contents preserve the title band, even for nested frames.
 	titleWidth := 4
-	for _, ch := range folderName(f.id) + "/" {
+	for _, ch := range f.label + "/" {
 		titleWidth += runeWidth(ch)
 	}
 	f.rect.w = math.Max(w+2, float64(titleWidth))
@@ -166,7 +168,7 @@ func (f *packedFolder) packRect(aspect float64) {
 
 func (g *graph) packedHierarchy(w, h int, changedOnly ...bool) hierarchyLayout {
 	result := hierarchyLayout{positions: make(map[*node][2]float64)}
-	root := &packedFolder{id: "."}
+	root := &packedFolder{id: ".", start: ".", label: "."}
 	folders := map[string]*packedFolder{".": root}
 	var ensure func(string) *packedFolder
 	ensure = func(id string) *packedFolder {
@@ -181,7 +183,7 @@ func (g *graph) packedHierarchy(w, h int, changedOnly ...bool) hierarchyLayout {
 			}
 		}
 		p := ensure(parent)
-		f := &packedFolder{id: id, depth: p.depth + 1}
+		f := &packedFolder{id: id, start: id, label: folderName(id), depth: p.depth + 1}
 		folders[id] = f
 		p.children = append(p.children, f)
 		return f
@@ -202,6 +204,31 @@ func (g *graph) packedHierarchy(w, h int, changedOnly ...bool) hierarchyLayout {
 	for _, f := range folders {
 		sort.Slice(f.children, func(i, j int) bool { return f.children[i].id < f.children[j].id })
 	}
+	var compact func(*packedFolder, int)
+	compact = func(f *packedFolder, depth int) {
+		for f.id != "." && len(f.children) == 1 {
+			modified := false
+			for _, n := range f.nodes {
+				if n.kind != "" || n.added+n.removed != 0 || n.unknown {
+					modified = true
+					break
+				}
+			}
+			if modified {
+				break
+			}
+			child := f.children[0]
+			f.id = child.id
+			f.label += "/" + child.label
+			f.nodes = append(f.nodes, child.nodes...)
+			f.children = child.children
+		}
+		f.depth = depth
+		for _, child := range f.children {
+			compact(child, depth+1)
+		}
+	}
+	compact(root, 0)
 	width, height := float64(max(1, w)-1), float64(max(1, h)-1)
 	// A child's best aspect need not equal the final viewport aspect: siblings,
 	// ancestor titles and border insets consume space too. Try several shared
@@ -229,7 +256,7 @@ func (g *graph) packedHierarchy(w, h int, changedOnly ...bool) hierarchyLayout {
 		y += f.rect.y
 		l, t := x*scaleX, y*scaleY/2
 		fw, fh := f.rect.w*scaleX, f.rect.h*scaleY/2
-		result.envelopes = append(result.envelopes, folderEnvelope{ID: f.id, Left: l, Top: t, Width: fw, Height: fh, CenterX: l + fw/2, CenterY: t + fh/2, Radius: math.Hypot(fw/2, fh), Scale: scale, Depth: f.depth})
+		result.envelopes = append(result.envelopes, folderEnvelope{ID: f.id, Label: f.label, Start: f.start, Left: l, Top: t, Width: fw, Height: fh, CenterX: l + fw/2, CenterY: t + fh/2, Radius: math.Hypot(fw/2, fh), Scale: scale, Depth: f.depth})
 		if len(f.nodes) > 0 {
 			zx, zy := x+f.zone.x, y+f.zone.y
 			l, t := zx*scaleX, zy*scaleY/2

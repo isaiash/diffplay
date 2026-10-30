@@ -37,6 +37,15 @@ func parents(paths []byte) map[string]bool {
 // Empty untracked directories are omitted, as Git does not enumerate them. Depth
 // follows watch.Scan (root zero, watch.AllDepth for unlimited). Errors invalidate the snapshot.
 func (r *Repository) Scan(maxDepth int) (watch.Snapshot, error) {
+	return r.scan(maxDepth, nil)
+}
+
+// ScanPrevious reuses available source Documents from the prior snapshot.
+func (r *Repository) ScanPrevious(maxDepth int, previous watch.Snapshot) (watch.Snapshot, error) {
+	return r.scan(maxDepth, previous)
+}
+
+func (r *Repository) scan(maxDepth int, previous watch.Snapshot) (watch.Snapshot, error) {
 	if maxDepth < watch.AllDepth {
 		maxDepth = 0
 	}
@@ -59,5 +68,5 @@ func (r *Repository) Scan(maxDepth int) (watch.Snapshot, error) {
 			allowed[p] = true
 		}
 	}
-	return watch.ScanFiltered(r.root, maxDepth, func(p string, _ bool) bool { return allowed[p] && !metadata(p) })
+	return watch.ScanFilteredPrevious(r.root, maxDepth, func(p string, _ bool) bool { return allowed[p] && !metadata(p) }, previous)
 }

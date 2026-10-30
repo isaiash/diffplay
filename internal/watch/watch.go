@@ -23,6 +23,7 @@ type Entry struct {
 	Size      int64
 	ModTime   time.Time
 	Content   []byte
+	Source    *Document
 	Hash      [32]byte
 	Truncated bool
 	// Lines counts newlines plus an unterminated final line (empty text is zero).
@@ -33,6 +34,26 @@ type Entry struct {
 	LinesKnown bool
 }
 type Snapshot map[string]Entry
+
+// CloseSnapshot releases disk-backed capture contents, not generated event diffs.
+func CloseSnapshot(s Snapshot) {
+	CloseSnapshotExcept(s, nil)
+}
+
+// CloseSnapshotExcept releases sources not retained by another snapshot.
+func CloseSnapshotExcept(s, keep Snapshot) {
+	retained := make(map[*Document]bool)
+	for _, e := range keep {
+		if e.Source != nil {
+			retained[e.Source] = true
+		}
+	}
+	for _, e := range s {
+		if e.Source != nil && !retained[e.Source] {
+			e.Source.Close()
+		}
+	}
+}
 
 // ContentLimit bounds captured text; HashLimit bounds the fully hashed prefix.
 // Files larger than HashLimit are sampled (prefix plus final ContentLimit bytes),
@@ -97,7 +118,7 @@ func (c *textCounter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func capture(path string, e *Entry) error {
+func capture(path string, e *Entry, previous *Entry) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -143,6 +164,19 @@ func capture(path string, e *Entry) error {
 			e.Lines++
 		}
 	}
+	if e.Truncated && e.Size <= HashLimit && e.LinesKnown {
+		if previous != nil && previous.Source != nil && previous.Size == e.Size && previous.ModTime.Equal(e.ModTime) && previous.Hash == e.Hash && previous.LinesKnown == e.LinesKnown && previous.LinesKnown && previous.Source.Available() {
+			e.Source = previous.Source
+		} else {
+			if _, err = f.Seek(0, io.SeekStart); err != nil {
+				return err
+			}
+			e.Source, err = NewDocument(f)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -157,13 +191,24 @@ const AllDepth = -1
 // callers must not treat that partial result as a complete set of deletions.
 // Like filesystem walking generally, the scan is not an atomic transaction.
 func Scan(root string, maxDepth int) (Snapshot, error) {
-	return ScanFiltered(root, maxDepth, nil)
+	return ScanFilteredPrevious(root, maxDepth, nil, nil)
+}
+
+// ScanPrevious scans as Scan while reusing available disk-backed sources from
+// the prior snapshot when metadata, full hash, and line-count validity match.
+func ScanPrevious(root string, maxDepth int, previous Snapshot) (Snapshot, error) {
+	return ScanFilteredPrevious(root, maxDepth, nil, previous)
 }
 
 // ScanFiltered applies allow to slash-separated root-relative paths before
 // reading metadata or contents. A rejected directory is pruned without reading
 // its children. Root is always included; nil allows every path.
 func ScanFiltered(root string, maxDepth int, allow func(path string, isDir bool) bool) (Snapshot, error) {
+	return ScanFilteredPrevious(root, maxDepth, allow, nil)
+}
+
+// ScanFilteredPrevious is ScanFiltered with previous-snapshot source reuse.
+func ScanFilteredPrevious(root string, maxDepth int, allow func(path string, isDir bool) bool, previous Snapshot) (Snapshot, error) {
 	if maxDepth < AllDepth {
 		maxDepth = 0
 	}
@@ -199,7 +244,12 @@ func ScanFiltered(root string, maxDepth int, allow func(path string, isDir bool)
 		}
 		e := Entry{Path: rel, IsDir: d.IsDir(), Size: info.Size(), ModTime: info.ModTime()}
 		if info.Mode().IsRegular() {
-			if err = capture(path, &e); err != nil {
+			old, hasOld := previous[rel]
+			var oldEntry *Entry
+			if hasOld {
+				oldEntry = &old
+			}
+			if err = capture(path, &e, oldEntry); err != nil {
 				return err
 			}
 		}
@@ -216,5 +266,8 @@ func ScanFiltered(root string, maxDepth int, allow func(path string, isDir bool)
 		}
 		return nil
 	})
+	if err != nil {
+		CloseSnapshotExcept(out, previous)
+	}
 	return out, err
 }

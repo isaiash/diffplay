@@ -202,14 +202,9 @@ func (u *ui) renderGraphCanvas(w, h int, now time.Time) *canvas {
 			}
 			c.text(px+1, py+2, label, gray, pw-2)
 		}
-		lines := strings.Split(n.diff, "\n")
-		if n.diff == "" {
-			lines = []string{"No text diff available."}
-		}
 		visible := max(1, ph-4)
-		u.scroll = min(u.scroll, max(0, len(lines)-visible))
-		for i := 0; i < visible && i+u.scroll < len(lines); i++ {
-			line := lines[i+u.scroll]
+		lines, total := u.diffWindow(n.diff, n.document, visible)
+		for i, line := range lines {
 			color := gray
 			if strings.HasPrefix(line, "+") {
 				color = green
@@ -221,7 +216,7 @@ func (u *ui) renderGraphCanvas(w, h int, now time.Time) *canvas {
 			}
 			c.text(px+1, py+3+i, diffText(line), color, pw-2)
 		}
-		c.text(px+1, py+ph-1, fmt.Sprintf("%d/%d", u.scroll+1, len(lines)), gray, pw-2)
+		c.text(px+1, py+ph-1, fmt.Sprintf("%d/%d", u.scroll+1, total), gray, pw-2)
 	}
 	return c
 }

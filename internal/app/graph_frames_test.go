@@ -51,3 +51,57 @@ func TestFolderFramesFollowCameraAndClipReservedRows(t *testing.T) {
 		t.Fatal("clipping invented a left border at viewport edge")
 	}
 }
+
+func TestFolderFrameContrastSurvivesCameraAndTinyViews(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		w, h       int
+		zoom, x, y float64
+		folder     folderEnvelope
+	}{
+		{"pan", 80, 30, 1, 3, 2, folderEnvelope{ID: "A", Left: 10, Top: 4, Width: 20, Height: 8}},
+		{"zoom", 80, 30, 1.5, 20, 12, folderEnvelope{ID: "A", Left: 10, Top: 4, Width: 20, Height: 8}},
+		{"clipped", 80, 30, 1, -11, 0, folderEnvelope{ID: "A", Left: 10, Top: 4, Width: 20, Height: 8}},
+		{"tiny", 12, 9, 1, 0, 0, folderEnvelope{ID: "A", Left: 1, Top: 2, Width: 9, Height: 4}},
+		{"reserved rows only", 3, 4, 1, 0, 0, folderEnvelope{ID: "A", Left: 0, Top: 0, Width: 2, Height: 3}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			u := newUI(newGraph(), "/repo")
+			u.width, u.height, u.zoom, u.panX, u.panY = tc.w, tc.h, tc.zoom, tc.x, tc.y
+			var baseline *canvas
+			for _, selected := range []string{"", "A/file", ""} {
+				u.selected = selected
+				c := newCanvas(tc.w, tc.h)
+				u.drawFolderFrame(c, tc.folder)
+				want := "\x1b[22;38;2;128;128;128m"
+				if selected != "" {
+					want = "\x1b[22;97m"
+				}
+				borders, titles := 0, 0
+				for i, v := range c.cells {
+					if baseline != nil && (v.ch != baseline.cells[i].ch || v.dots != baseline.cells[i].dots) {
+						t.Fatalf("selection changed frame glyph at cell %d", i)
+					}
+					if v.ch == 0 {
+						continue
+					}
+					if y := i / c.w; y < 2 || y >= c.h-2 {
+						t.Fatalf("frame overwrote reserved row %d", y)
+					}
+					if v.color.sgr(false) != want {
+						t.Errorf("selected=%q glyph=%q SGR=%q, want %q", selected, v.ch, v.color.sgr(false), want)
+					}
+					if v.ch == 'A' || v.ch == '/' {
+						titles++
+					} else {
+						borders++
+					}
+				}
+				if tc.h > 4 && (borders == 0 || titles != 2) {
+					t.Fatalf("fixture missing border/title: borders=%d titles=%d", borders, titles)
+				}
+				baseline = c
+			}
+		})
+	}
+}

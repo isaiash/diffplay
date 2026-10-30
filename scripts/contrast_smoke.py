@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check theme-default structural ink in real list and combined PTY frames."""
+"""Check readable structure and selected-only white folder branches via PTY."""
 import os
 from pathlib import Path
 import subprocess
@@ -108,7 +108,7 @@ def check(raw, rows, view):
                    for x, ch in enumerate(rows[line]) if ch == "┌"]
         assert corners, "missing graph folder outlines"
         for x, line in corners:
-            check_cell(x, line, "┌")
+            assert decoded[x, line] == ("┌", (38, 2, 128, 128, 128), None, False, False, False), decoded[x, line]
 
 
 def main():
@@ -135,17 +135,29 @@ def main():
             terminal.frame(lambda raw, rows: "change.txt" in raw)
             (root / "dir/nested/change.txt").write_text("new\n" * 4 + "changed\n" * 4)
             terminal.frame(lambda raw, rows: any("█│█" in row for row in rows))
-            terminal.send(b"\x1b[B")
+            (root / "other").mkdir()
+            (root / "other/sibling.txt").write_text("sibling\n")
+            _, rows = terminal.frame(lambda raw, rows: "sibling.txt" in raw)
+            selected_y = next(y for y, row in enumerate(rows[2:], 2) if "selected.txt" in row)
+            terminal.send(f"\x1b[<35;20;{selected_y + 1}M".encode())
             raw, rows = terminal.frame(lambda raw, rows: mode(rows, "list") and "change.txt" in raw and "✦" not in raw and any("█│█" in row for row in rows) and any(row.startswith("›") and "selected.txt" in row for row in rows), timeout=12)
             check(raw, rows, "list")
             terminal.send(b"\t\t")
             raw, rows = terminal.frame(lambda raw, rows: mode(rows, "combined") and "change.txt" in raw and "✦" not in raw and any("█│█" in row for row in rows), timeout=12)
             check(raw, rows, "combined")
+            top = divider(rows)
+            assert top is not None
+            selected_y = next(y for y, row in enumerate(rows[2:top], 2) if "change.txt" in row)
+            terminal.send(f"\x1b[<35;30;{selected_y + 1}M".encode())
+            def branch_colors(raw, rows):
+                top = divider(rows)
+                return [fg for (x, y), (char, fg, *_rest) in cells(raw).items() if top is not None and y > top and char == "┌"]
+            terminal.frame(lambda raw, rows: branch_colors(raw, rows).count(97) == 1 and branch_colors(raw, rows).count((38, 2, 128, 128, 128)) == 1)
             terminal.send(b"q")
             terminal.proc.wait(timeout=5)
             assert terminal.proc.returncode == 0
             assert_terminal_restored(terminal.slave, terminal.before)
-            print("PASS: theme-default structure in list and combined PTY frames")
+            print("PASS: readable default structure, medium-gray folders and white selected ancestors only")
         finally:
             terminal.close()
 

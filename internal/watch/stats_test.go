@@ -72,9 +72,13 @@ func TestUnavailableLineStats(t *testing.T) {
 			if len(events) != 1 {
 				t.Fatalf("events = %v", events)
 			}
-			assertStats(t, events[0], 0, 0, false)
+			if tc.name == "binary" || tc.name == "truncated" {
+				assertStats(t, events[0], 0, 0, false)
+			} else {
+				assertStats(t, events[0], len(lines(tc.after.Content)), len(lines(tc.before.Content)), true)
+			}
 			// Complete captured creations/deletions need no bounded alignment or output.
-			if tc.name == "line bound" || tc.name == "alignment bound" || tc.name == "output bound" {
+			if tc.name != "binary" && tc.name != "truncated" {
 				return
 			}
 			for _, pair := range [][2]Snapshot{{nil, {"f": tc.after}}, {{"f": tc.before}, nil}} {

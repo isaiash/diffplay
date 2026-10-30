@@ -61,3 +61,21 @@ func TestPickerSanitizesPaths(t *testing.T) {
 		t.Fatal("display sanitization must preserve actual selection identifier")
 	}
 }
+
+func TestPickerShowsRepositoryNamesWhenTemporaryRootIsLong(t *testing.T) {
+	paths := []string{
+		"/private/var/folders/aa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/T/diffplay-smoke.XXXXXXXX/tmp/workspace/alpha",
+		"/private/var/folders/aa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/T/diffplay-smoke.XXXXXXXX/tmp/workspace/beta",
+	}
+	p := newRepositoryPicker(paths)
+	raw := plainList(p.render(100, 30))
+	for _, name := range []string{"alpha", "beta"} {
+		if !strings.Contains(raw, name) {
+			t.Fatalf("picker clipped repository name %q: %q", name, raw)
+		}
+	}
+	selected := p.selectedPaths()
+	if len(selected) != 1 || selected[0] != paths[0] {
+		t.Fatal("picker must preserve the actual repository path for opening")
+	}
+}

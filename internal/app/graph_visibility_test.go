@@ -42,20 +42,18 @@ func TestGraphHidesInactiveFolderBranchesRecursively(t *testing.T) {
 	}
 }
 
-func TestGraphOmitsRootFrameAndUsesLocalFolderNames(t *testing.T) {
+func TestGraphOmitsRootFrameAndCompactsLocalFolderNames(t *testing.T) {
 	g := newGraph()
 	applySnapshot(g, nil, []changeEvent{{Path: "parent/child/file", Kind: "modified", At: time.Unix(100, 0)}}, time.Unix(100, 0))
 	u := newUI(g, "demo")
 	frame := plainList(u.render(160, 50, time.Unix(200, 0)))
-	if strings.Contains(frame, "./") || strings.Contains(frame, "parent/child/") {
-		t.Fatal("redundant root/path in nested frame labels")
+	if strings.Contains(frame, "./") {
+		t.Fatal("redundant root frame label")
 	}
-	for _, label := range []string{"parent/", "child/"} {
-		if !strings.Contains(frame, label) {
-			t.Fatalf("missing local label %s", label)
-		}
+	if !strings.Contains(frame, "parent/child/") {
+		t.Fatal("missing compact relative label parent/child/")
 	}
-	if strings.Count(frame, "┌") != 2 {
-		t.Fatal("expected only parent and child frames")
+	if strings.Count(frame, "┌") != 1 {
+		t.Fatal("expected one compact parent/child frame")
 	}
 }

@@ -43,9 +43,14 @@ func (u *ui) applyScanUpdate(up scanUpdate) {
 	for id, preview := range up.previews {
 		if n := u.graph.nodes[id]; n != nil {
 			n.diff = preview
+			n.document = up.documents[id]
 		}
 		if r := u.history.entries[id]; r != nil {
 			r.diff = preview
+			if r.document != nil && r.document != up.documents[id] {
+				r.document.Close()
+			}
+			r.document = up.documents[id]
 		}
 	}
 	for id, count := range up.modifications {
@@ -57,6 +62,13 @@ func (u *ui) applyScanUpdate(up scanUpdate) {
 		if preview, ok := up.previews[e.Path]; ok {
 			if r := u.history.entries[e.Path]; r != nil {
 				r.previewScroll = previewOffset(preview, e.Diff)
+				if d := up.documents[e.Path]; d != nil {
+					target := previewTarget(e.Diff)
+					if e.Document != nil {
+						target = e.Document.FirstEdit
+					}
+					r.previewScroll = d.Offset(target)
+				}
 			}
 		}
 	}
@@ -82,6 +94,9 @@ func flashPriority(kind string) int {
 func (u *ui) recordEvents(events []changeEvent) {
 	for _, e := range events {
 		u.recordChange(e.Path, e.Kind, e.IsDir, e.Diff, e.Added, e.Removed, e.StatsKnown, e.At)
+		if r := u.history.entries[e.Path]; r != nil {
+			r.document = e.Document
+		}
 	}
 }
 
@@ -154,11 +169,17 @@ func (u *ui) applyVisibility(visible map[string]bool) {
 		if allowed || id == "." {
 			continue
 		}
-		if _, exists := u.graph.nodes[id]; exists {
+		if n, exists := u.graph.nodes[id]; exists {
+			if n.document != nil {
+				n.document.Close()
+			}
 			delete(u.graph.nodes, id)
 			u.graph.dirty = true
 		}
-		if _, exists := u.history.entries[id]; exists {
+		if r, exists := u.history.entries[id]; exists {
+			if r.document != nil {
+				r.document.Close()
+			}
 			delete(u.history.entries, id)
 			u.history.cached = nil
 		}

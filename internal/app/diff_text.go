@@ -1,9 +1,28 @@
 package app
 
 import (
+	"github.com/isaiash/diffplay/internal/watch"
 	"strconv"
 	"strings"
 )
+
+func (u *ui) diffWindow(text string, d *watch.Document, n int) ([]string, int) {
+	if d != nil {
+		total := d.Len()
+		u.scroll = max(0, min(u.scroll, max(0, total-n)))
+		return d.Window(u.scroll, n), total
+	}
+	if u.previewLines == nil || u.previewText != text {
+		u.previewText = text
+		u.previewLines = strings.Split(text, "\n")
+		if text == "" {
+			u.previewLines = []string{"No text diff available."}
+		}
+	}
+	total := len(u.previewLines)
+	u.scroll = max(0, min(u.scroll, max(0, total-n)))
+	return u.previewLines[u.scroll:min(total, u.scroll+n)], total
+}
 
 func diffText(line string) string {
 	line = strings.TrimSuffix(line, "\r")
@@ -36,7 +55,7 @@ func diffNewLine(line string) (int, bool) {
 }
 
 // Locate the live edit in the HEAD diff by its current-file line, not text that may repeat.
-func previewOffset(head, burst string) int {
+func previewTarget(burst string) int {
 	target, position := 0, 0
 	for _, line := range strings.Split(burst, "\n") {
 		if start, ok := diffNewLine(line); ok {
@@ -57,10 +76,15 @@ func previewOffset(head, burst string) int {
 			position++
 		}
 	}
+	return target
+}
+
+func previewOffset(head, burst string) int {
+	target := previewTarget(burst)
 	if target == 0 {
 		return 0
 	}
-	position = 0
+	position := 0
 	for i, line := range strings.Split(head, "\n") {
 		if start, ok := diffNewLine(line); ok {
 			position = start

@@ -485,14 +485,9 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 					kind = "new file · modified"
 				}
 				c.text(px, 2, kind, gray, pw)
-				lines := strings.Split(focus.diff, "\n")
-				if focus.diff == "" {
-					lines = []string{"No text diff available."}
-				}
 				n := max(0, visible-2)
-				u.scroll = min(u.scroll, max(0, len(lines)-n))
-				for i := 0; i < n && i+u.scroll < len(lines); i++ {
-					line := lines[i+u.scroll]
+				lines, total := u.diffWindow(focus.diff, focus.document, n)
+				for i, line := range lines {
 					color := gray
 					if strings.HasPrefix(line, "+") {
 						color = green
@@ -505,7 +500,7 @@ func (u *ui) renderListCanvas(w, h int, now time.Time) *canvas {
 					c.text(px, 4+i, diffText(line), color, pw)
 				}
 				if focus.diff != "" {
-					previewRows = min(n, len(lines)-u.scroll)
+					previewRows = min(n, total-u.scroll)
 				}
 			}
 		}
