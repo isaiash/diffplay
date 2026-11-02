@@ -8,6 +8,7 @@ test:
 	go vet ./...
 	python3 scripts/test_install.py
 	python3 scripts/test_quickinstall.py
+	python3 scripts/test_release.py
 	python3 scripts/test_smoke_environment.py
 	python3 scripts/test_workspace_terminal.py
 	python3 scripts/test_terminal_restoration.py
