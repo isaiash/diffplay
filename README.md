@@ -6,7 +6,8 @@
 curl -fsSL https://raw.githubusercontent.com/isaiash/diffplay/main/quickinstall.sh | bash
 ```
 
-The installer detects your OS, installs missing dependencies (may require sudo or Homebrew), and downloads a temporary Go toolchain when needed.
+The installer downloads the latest GitHub release for Linux or macOS (x86_64 or ARM64), verifies its SHA-256 checksum, and installs it without Go or a local build. Rerun the same command to update.
+Missing runtime/install dependencies, including Git, are installed when needed (may require sudo or Homebrew).
 The binary is installed to `~/.local/bin` by default; make sure that directory is on your `PATH`:
 
 ```sh
@@ -50,6 +51,13 @@ diffplay --view graph          # Full-screen graph.
 Copying requires terminal permission for OSC 52. Your system copy shortcuts are not changed. Polling can miss edits between scans; `HITS` resets after commit or reversion. A truecolor terminal is recommended.
 
 ## Development
+
+### Releases
+
+Push a version tag matching `v*` to publish a release. Both Linux and macOS CI must pass tests and smoke checks before publishing binaries for both architectures and their SHA-256 checksums.
+Quickinstall requires at least one published release with these assets; it does not fall back to building from source.
+
+### Local checks
 
 ```sh
 make test

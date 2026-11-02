@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import tarfile
 import tempfile
 import unittest
 
@@ -20,7 +19,7 @@ class QuickInstallTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.bin = self.root / "bin"
         self.bin.mkdir()
-        for tool in ("bash", "sh", "mkdir", "mktemp", "rm", "tar", "gzip", "install", "chmod", "dirname", "sha256sum", "shasum"):
+        for tool in ("bash", "sh", "mkdir", "mktemp", "rm", "install", "chmod", "sha256sum", "shasum"):
             location = shutil.which(tool)
             if location:
                 (self.bin / tool).symlink_to(location)
@@ -30,7 +29,6 @@ class QuickInstallTests(unittest.TestCase):
         self.executable("uname", 'case "$1" in -s) echo "$TEST_OS";; -m) echo "$TEST_ARCH";; esac\n')
         self.executable("id", "echo 1000\n")
         self.executable("git", "echo 'git version 2.49.0'\n")
-        self.compiler(self.bin / "go")
         self.executable("curl", '''
 url= output=
 while [ "$#" -gt 0 ]; do
@@ -39,20 +37,20 @@ while [ "$#" -gt 0 ]; do
 done
 printf '%s\n' "$url" >> "$TEST_ROOT/downloads"
 case "$url" in
-    *VERSION*) printf 'go1.27.3\ntime 2026-10-19T00:00:00Z\n';;
     *.sha256)
+        [ "${TEST_DOWNLOAD_FAILURE:-}" != 1 ] || exit 22
         if [ "${TEST_BAD_CHECKSUM:-}" = 1 ]; then
-            echo '1111111111111111111111111111111111111111111111111111111111111111'
+            printf '%s\n' '1111111111111111111111111111111111111111111111111111111111111111' > "$output"
         else
-            printf '%s\n' "$TEST_GO_SHA256"
+            printf '%s\n' "$TEST_SHA256" > "$output"
         fi;;
-    *go1.27.3.*.tar.gz) install "$TEST_ROOT/go.tar.gz" "$output";;
-    *diffplay*/tar.gz/*) install "$TEST_ROOT/source.tar.gz" "$output";;
+    */releases/latest/download/diffplay-*) install "$TEST_ROOT/diffplay" "$output";;
     *) echo "Unexpected download: $url" >&2; exit 1;;
 esac
 ''')
-        self.source_archive()
-        self.go_archive()
+        binary = self.root / "diffplay"
+        binary.write_text('#!/bin/sh\necho "diffplay 0.6.0"\n')
+        self.env["TEST_SHA256"] = hashlib.sha256(binary.read_bytes()).hexdigest() + "  diffplay-linux-amd64"
 
     def executable(self, name, content):
         path = self.bin / name
@@ -61,34 +59,6 @@ esac
         path.write_text("#!/bin/sh\nset -eu\n" + content)
         path.chmod(0o755)
         return path
-
-    def compiler(self, path, version="1.27.3"):
-        path.write_text('''#!/bin/sh
-set -eu
-if [ "$1" = version ]; then echo 'go version goVERSION linux/amd64'; exit 0; fi
-while [ "$#" -gt 0 ]; do
-    if [ "$1" = -o ]; then
-        shift
-        printf '#!/bin/sh\necho "diffplay 0.6.0"\n' > "$1"
-        exit 0
-    fi
-    shift
-done
-exit 1
-'''.replace("VERSION", version))
-        path.chmod(0o755)
-
-    def source_archive(self):
-        with tarfile.open(self.root / "source.tar.gz", "w:gz") as archive:
-            archive.add(ROOT / "install.sh", arcname="diffplay-master/install.sh")
-            archive.add(ROOT / "go.mod", arcname="diffplay-master/go.mod")
-
-    def go_archive(self):
-        compiler = self.root / "downloaded-go"
-        self.compiler(compiler)
-        with tarfile.open(self.root / "go.tar.gz", "w:gz") as archive:
-            archive.add(compiler, arcname="go/bin/go")
-        self.env["TEST_GO_SHA256"] = hashlib.sha256((self.root / "go.tar.gz").read_bytes()).hexdigest()
 
     def invoke(self):
         # Feed through stdin, exactly like curl | bash (not bash filename).
@@ -100,53 +70,77 @@ exit 1
         target = Path(self.env["PREFIX"]) / "bin/diffplay"
         self.assertTrue(os.access(target, os.X_OK), str(target))
         self.assertEqual(subprocess.check_output([str(target)], text=True).strip(), "diffplay 0.6.0")
-        self.assertFalse(list(self.root.glob("diffplay-install.*")), "temporary checkout was not cleaned up")
+        self.assertFalse(list(self.root.glob("diffplay-install.*")), "temporary downloads were not cleaned up")
 
     def test_linux_installs_from_pipe_with_existing_dependencies(self):
         self.assert_installed(self.invoke())
         self.assertNotIn("VERSION", (self.root / "downloads").read_text())
 
-    def test_source_download_uses_main_branch(self):
-        self.assert_installed(self.invoke())
-        downloads = (self.root / "downloads").read_text().splitlines()
-        self.assertIn("https://codeload.github.com/isaiash/diffplay/tar.gz/refs/heads/main", downloads)
-        self.assertFalse(any("refs/heads/master" in url for url in downloads))
+    def test_latest_release_download_without_go_or_source_build(self):
+        for system, os_name in (("Linux", "linux"), ("Darwin", "darwin")):
+            for machine, arch in (("x86_64", "amd64"), ("arm64", "arm64")):
+                with self.subTest(system=system, machine=machine):
+                    self.env.update(TEST_OS=system, TEST_ARCH=machine)
+                    self.assert_installed(self.invoke())
+                    downloads = (self.root / "downloads").read_text().splitlines()
+                    asset = f"diffplay-{os_name}-{arch}"
+                    self.assertEqual(downloads[-2:], [
+                        f"https://github.com/isaiash/diffplay/releases/latest/download/{asset}.sha256",
+                        f"https://github.com/isaiash/diffplay/releases/latest/download/{asset}",
+                    ])
 
     def test_macos_installs_from_pipe_with_existing_dependencies(self):
         self.env.update(TEST_OS="Darwin", TEST_ARCH="arm64")
         self.assert_installed(self.invoke())
 
-    def test_missing_go_downloads_verified_toolchain(self):
-        (self.bin / "go").unlink()
-        self.assert_installed(self.invoke())
-        downloads = (self.root / "downloads").read_text()
-        self.assertIn("go1.27.3.linux-amd64.tar.gz", downloads)
-        self.assertIn(".sha256", downloads)
-
-    def test_old_go_downloads_supported_toolchain(self):
-        self.compiler(self.bin / "go", version="1.20.0")
-        self.assert_installed(self.invoke())
-        self.assertIn("VERSION", (self.root / "downloads").read_text())
-
-    def test_macos_downloads_arm_toolchain(self):
-        self.env.update(TEST_OS="Darwin", TEST_ARCH="arm64")
-        (self.bin / "go").unlink()
-        self.assert_installed(self.invoke())
-        self.assertIn("go1.27.3.darwin-arm64.tar.gz", (self.root / "downloads").read_text())
-
-    def test_checksum_failure_stops_before_build(self):
-        (self.bin / "go").unlink()
+    def test_checksum_failure_preserves_existing_install(self):
+        target = Path(self.env["PREFIX"]) / "bin/diffplay"
+        target.parent.mkdir(parents=True)
+        target.write_text("existing installation")
         self.env["TEST_BAD_CHECKSUM"] = "1"
         result = self.invoke()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("checksum", result.stderr.lower())
+        self.assertEqual(target.read_text(), "existing installation")
+        self.assertFalse(list(self.root.glob("diffplay-install.*")))
+
+    def test_missing_release_fails_without_installing(self):
+        self.env["TEST_DOWNLOAD_FAILURE"] = "1"
+        result = self.invoke()
+        self.assertNotEqual(result.returncode, 0)
         self.assertFalse((Path(self.env["PREFIX"]) / "bin/diffplay").exists())
+
+    def test_invalid_checksum_fails_before_binary_download(self):
+        self.env["TEST_SHA256"] = "invalid metadata"
+        result = self.invoke()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid release checksum", result.stderr)
+        self.assertEqual(len((self.root / "downloads").read_text().splitlines()), 1)
+
+    def test_default_install_prefix(self):
+        del self.env["PREFIX"]
+        result = self.invoke()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(os.access(self.root / ".local/bin/diffplay", os.X_OK))
+
+    def test_shasum_fallback(self):
+        (self.bin / "sha256sum").unlink(missing_ok=True)
+        if not (self.bin / "shasum").exists():
+            self.skipTest("shasum is not installed")
+        self.assert_installed(self.invoke())
 
     def test_unsupported_os_fails_before_downloads(self):
         self.env["TEST_OS"] = "FreeBSD"
         result = self.invoke()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("macOS and Linux", result.stderr)
+        self.assertFalse((self.root / "downloads").exists())
+
+    def test_unsupported_architecture_fails_before_downloads(self):
+        self.env["TEST_ARCH"] = "riscv64"
+        result = self.invoke()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Supported architectures", result.stderr)
         self.assertFalse((self.root / "downloads").exists())
 
     def package_manager(self, name):
